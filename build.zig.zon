@@ -1,0 +1,13 @@
+.{
+    .name = .zig_nfl_clock,
+
+    .version = "0.0.0",
+
+    .fingerprint = 0x406672f193552b9e, // Changing this has security and trust implications.
+
+    .minimum_zig_version = "0.14.1",
+
+    .paths = .{ "build.zig", "build.zig.zon", "lib", "LICENSE", "README.md" },
+
+    // No dependencies.
+}

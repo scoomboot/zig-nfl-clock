@@ -17,7 +17,7 @@
     pub const GameState = @import("game_clock/game_clock.zig").GameState;
 
     // Re-export utility functions if any
-    pub const formatTime = @import("game_clock/game_clock.zig").formatTime;
+    // Note: formatTime is not available in the current implementation
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════╝
 
@@ -65,7 +65,6 @@
         _ = GameClockError;
         _ = Quarter;
         _ = GameState;
-        _ = formatTime;
         _ = createGameClock;
         _ = version;
 
@@ -81,9 +80,17 @@
         const clock = try createGameClock(allocator);
         defer clock.deinit();
 
-        // Verify initial state
-        try testing.expectEqual(Quarter.first, clock.getCurrentQuarter());
-        try testing.expectEqual(GameState.pre_game, clock.getGameState());
+        // Verify initial state - using actual available fields/methods
+        try testing.expectEqual(Quarter.Q1, clock.quarter);
+        try testing.expectEqual(GameState.PreGame, clock.state);
+    }
+
+    // Import all test files to ensure they run with `zig build test`
+    test {
+        _ = @import("game_clock/game_clock.test.zig");
+        _ = @import("game_clock/utils/time_formatter/time_formatter.test.zig");
+        _ = @import("game_clock/utils/rules_engine/rules_engine.test.zig");
+        _ = @import("game_clock/utils/play_handler/play_handler.test.zig");
     }
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════╝

@@ -27,7 +27,7 @@
     /// - void
     pub fn build(b: *Build) void {
         const lib_mod = b.createModule(.{
-            .root_source_file = b.path("lib/lib.zig"),
+            .root_source_file = b.path("lib/game_clock.zig"),
             .target = b.standardTargetOptions(.{}),
             .optimize = b.standardOptimizeOption(.{}),
         });

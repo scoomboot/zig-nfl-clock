@@ -6,9 +6,9 @@
 //
 // Vibe coded by Scoom.
 
-const std = @import("std");
-
 // ╔══════════════════════════════════════ PACK ══════════════════════════════════════╗
+
+    const std = @import("std");
 
     /// NFL timing constants (in seconds)
     pub const TimingConstants = struct {

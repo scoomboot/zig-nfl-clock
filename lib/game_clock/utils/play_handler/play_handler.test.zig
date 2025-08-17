@@ -6,7 +6,6 @@
 //
 // Vibe coded by Scoom.
 
-const std = @import("std");
 const testing = std.testing;
 const PlayHandler = @import("play_handler.zig").PlayHandler;
 const PlayType = @import("play_handler.zig").PlayType;
@@ -20,6 +19,7 @@ const getNormalPlayTime = @import("play_handler.zig").getNormalPlayTime;
 
 // ╔══════════════════════════════════════ PACK ══════════════════════════════════════╗
 
+    const std = @import("std");
     const allocator = testing.allocator;
 
 

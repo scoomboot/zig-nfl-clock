@@ -8,24 +8,31 @@ After fixing the test file naming convention (#023), attempting to run tests rev
 
 ## Current State
 
+**Total compilation errors: 89** (discovered during Issue #025 resolution)
+
 ### Affected Files:
 1. **game_clock.test.zig**: 
    - Type mismatch in error handling for `getTimeString()`
    - Line 236: expects `[]u8` but returns `*const [5:0]u8`
+   - Missing method: `GameClock.deinit()` being called but not implemented
 
 2. **time_formatter.test.zig**:
    - Missing methods: `formatGameTime`, `formatPlayClock`, `formatQuarter`, `formatTimeouts`, `formatDownAndDistance`, `formatScore`, `formatTimeWithContext`, `formatElapsedTime`
-   - Variables declared as `var` should be `const` (lines 51, 65)
+   - Variables declared as `var` should be `const` (lines 53, 67)
 
 3. **rules_engine.test.zig**:
    - Missing methods: `processPlay`, `canCallTimeout`, `advanceQuarter`, `processPenalty`, `newPossession`, `isHalfOver`, `updateDownAndDistance`
-   - Variables declared as `var` should be `const` (lines 57, 83, 575, 593)
+   - Variables declared as `var` should be `const` (lines 59, 85, 581, 599)
 
 4. **play_handler.test.zig**:
    - Missing methods: `processPlay`, `updateGameState`, `updateStatistics`
    - Type mismatch in `initWithState()` (enum types don't match)
-   - Unused function parameter in `getFieldPosition()`
-   - Variables declared as `var` should be `const` (lines 53, 80)
+   - Unused function parameter in `getFieldPosition()` (line 636: `self` parameter)
+   - Variables declared as `var` should be `const` (lines 55, 82, 424)
+
+### Additional Issues Discovered:
+- **Method call pattern mismatches**: Methods requiring mutable references (`self: *Type`) are being called directly on instances instead of passing pointers
+- **Return type issues**: Functions returning const string literals where mutable slices (`[]u8`) are expected
 
 ## Root Cause Analysis
 The implementation modules appear to have different public APIs than what the tests expect. This suggests either:
@@ -57,8 +64,9 @@ The implementation modules appear to have different public APIs than what the te
 - Check test coverage remains comprehensive
 
 ## Reference
-- Test compilation errors observed in session 2025-08-17
-- Files: lib/game_clock/*.test.zig
+- Initial test compilation errors observed in session 2025-08-17
+- Additional 89 compilation errors discovered during Issue #025 resolution (2025-08-17)
+- Files: lib/game_clock/*.test.zig and lib/game_clock/utils/**/*.test.zig
 
 ## Estimated Time
 2-3 hours (depending on whether implementations or tests need major changes)

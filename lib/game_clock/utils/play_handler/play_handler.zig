@@ -1,14 +1,20 @@
-// play_handler.zig — Play outcome processing for game clock
+// play_handler.zig — Play outcome processing
 //
 // repo   : https://github.com/zig-nfl-clock
 // docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/play_handler
-// author : https://github.com/maysara-elshewehy
+// author : https://github.com/fisty
 //
 // Vibe coded by Scoom.
 
 // ╔══════════════════════════════════════ PACK ══════════════════════════════════════╗
 
     const std = @import("std");
+
+    /// Play outcome processing and game state management.
+    ///
+    /// This module handles the processing of various NFL play types, updating
+    /// game state, tracking statistics, and simulating realistic play outcomes
+    /// including yards gained, turnovers, and scoring.
 
     /// Play type classifications
     pub const PlayType = enum {
@@ -154,7 +160,17 @@
         /// Random number generator for play variations
         rng: std.Random,
 
-        /// Initialize play handler
+        /// Initialize play handler.
+        ///
+        /// Creates a new play handler with default game state.
+        ///
+        /// __Parameters__
+        ///
+        /// - `seed`: Random seed for play variations
+        ///
+        /// __Return__
+        ///
+        /// - Initialized PlayHandler instance
         pub fn init(seed: u64) PlayHandler {
             var prng = std.Random.DefaultPrng.init(seed);
             
@@ -178,7 +194,18 @@
             };
         }
 
-        /// Initialize with custom game state
+        /// Initialize with custom game state.
+        ///
+        /// Creates a play handler with specified game state.
+        ///
+        /// __Parameters__
+        ///
+        /// - `game_state`: Initial game state configuration
+        /// - `seed`: Random seed for play variations
+        ///
+        /// __Return__
+        ///
+        /// - Initialized PlayHandler with custom state
         pub fn initWithState(game_state: GameStateUpdate, seed: u64) PlayHandler {
             var prng = std.Random.DefaultPrng.init(seed);
             
@@ -192,7 +219,19 @@
             };
         }
 
-        /// Process a play and update game state
+        /// Process a play and update game state.
+        ///
+        /// Simulates play execution and updates all game statistics.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to PlayHandler
+        /// - `play_type`: Type of play to execute
+        /// - `options`: Optional play parameters (yards_attempted, kick_distance, return_yards)
+        ///
+        /// __Return__
+        ///
+        /// - PlayResult with play outcome details
         pub fn processPlay(self: *PlayHandler, play_type: PlayType, options: struct {
             yards_attempted: ?i16 = null,
             kick_distance: ?u8 = null,
@@ -246,7 +285,18 @@
             return result;
         }
 
-        /// Update game state after play
+        /// Update game state after play.
+        ///
+        /// Applies play result to game state including score and possession.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to PlayHandler
+        /// - `result`: Play result to apply
+        ///
+        /// __Return__
+        ///
+        /// - void
         pub fn updateGameState(self: *PlayHandler, result: *PlayResult) void {
             // Update time
             if (self.game_state.time_remaining > result.time_consumed) {
@@ -299,7 +349,18 @@
             self.game_state.play_clock = 40;
         }
 
-        /// Update team statistics
+        /// Update team statistics.
+        ///
+        /// Records play results in team statistics tracking.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to PlayHandler
+        /// - `result`: Play result to record
+        ///
+        /// __Return__
+        ///
+        /// - void
         pub fn updateStatistics(self: *PlayHandler, result: *const PlayResult) void {
             const stats = if (self.possession_team == .home) &self.home_stats else &self.away_stats;
     
@@ -643,36 +704,58 @@
 
 // ╔══════════════════════════════════════ UTILS ═════════════════════════════════════╗
 
-    /// Calculate expected points for current field position
+    /// Calculate expected points for current field position.
+    ///
+    /// Returns EPA (Expected Points Added) value for field position.
+    ///
+    /// __Parameters__
+    ///
+    /// - `field_position`: Field position (0-100, 0 = own end zone)
+    ///
+    /// __Return__
+    ///
+    /// - Expected points value
     pub fn getExpectedPoints(field_position: u8) f32 {
-            // Simplified expected points model
-            // Real NFL EPA is more complex
-            const distance_to_endzone = 100 - field_position;
-    
-            if (distance_to_endzone <= 5) return 5.5;
-            if (distance_to_endzone <= 10) return 4.8;
-            if (distance_to_endzone <= 20) return 3.5;
-            if (distance_to_endzone <= 30) return 2.4;
-            if (distance_to_endzone <= 40) return 1.5;
-            if (distance_to_endzone <= 50) return 0.7;
-            if (distance_to_endzone <= 60) return 0.0;
-            if (distance_to_endzone <= 70) return -0.5;
-            if (distance_to_endzone <= 80) return -1.0;
-            if (distance_to_endzone <= 90) return -1.5;
-            return -2.0;
-            }
+        // Simplified expected points model
+        // Real NFL EPA is more complex
+        const distance_to_endzone = 100 - field_position;
 
-    /// Simulate time for hurry-up offense
+        if (distance_to_endzone <= 5) return 5.5;
+        if (distance_to_endzone <= 10) return 4.8;
+        if (distance_to_endzone <= 20) return 3.5;
+        if (distance_to_endzone <= 30) return 2.4;
+        if (distance_to_endzone <= 40) return 1.5;
+        if (distance_to_endzone <= 50) return 0.7;
+        if (distance_to_endzone <= 60) return 0.0;
+        if (distance_to_endzone <= 70) return -0.5;
+        if (distance_to_endzone <= 80) return -1.0;
+        if (distance_to_endzone <= 90) return -1.5;
+        return -2.0;
+    }
+
+    /// Simulate time for hurry-up offense.
+    ///
+    /// Returns typical time consumption for hurry-up plays.
+    ///
+    /// __Return__
+    ///
+    /// - Time in seconds for hurry-up play
     pub fn getHurryUpPlayTime() u32 {
-            // Hurry-up plays typically take 10-15 seconds of game time
-            return 12;
-            }
+        // Hurry-up plays typically take 10-15 seconds of game time
+        return 12;
+    }
 
-    /// Simulate time for normal play
+    /// Simulate time for normal play.
+    ///
+    /// Returns typical time consumption for standard plays.
+    ///
+    /// __Return__
+    ///
+    /// - Time in seconds for normal play
     pub fn getNormalPlayTime() u32 {
-            // Normal plays typically take 35-40 seconds including huddle
-            return 38;
-            }
+        // Normal plays typically take 35-40 seconds including huddle
+        return 38;
+    }
 
 
 
@@ -682,37 +765,37 @@
 
     test "process pass play" {
         var handler = PlayHandler.init(12345);
-    
+
         const result = handler.processPlay(.pass_short, .{});
         try std.testing.expect(result.play_type == .pass_short);
         try std.testing.expect(result.time_consumed > 0);
-        }
+    }
 
     test "process run play" {
         var handler = PlayHandler.init(12345);
-    
+
         const result = handler.processPlay(.run_up_middle, .{});
         try std.testing.expect(result.play_type == .run_up_middle);
         try std.testing.expect(result.time_consumed > 0);
-        }
+    }
 
     test "field goal processing" {
         var handler = PlayHandler.init(12345);
         const initial_score = handler.game_state.away_score;
-    
+
         _ = handler.processPlay(.field_goal, .{ .kick_distance = 30 });
-    
-    // Score might or might not increase based on random success
+
+        // Score might or might not increase based on random success
         try std.testing.expect(handler.game_state.away_score >= initial_score);
-        }
+    }
 
     test "touchdown scoring" {
         var handler = PlayHandler.init(12345);
         handler.game_state.possession = .home;
         handler.possession_team = .home;
-    
-    // Simulate a touchdown
-            var result = PlayResult{
+
+        // Simulate a touchdown
+        var result = PlayResult{
             .play_type = .run_up_middle,
             .yards_gained = 10,
             .out_of_bounds = false,
@@ -722,17 +805,17 @@
             .is_turnover = false,
             .time_consumed = 6,
             .field_position = 100,
-            };
-    
+        };
+
         handler.updateGameState(&result);
         try std.testing.expectEqual(@as(u16, 6), handler.game_state.home_score);
-        }
+    }
 
     test "down and distance progression" {
         var handler = PlayHandler.init(12345);
-    
-    // Test normal progression
-            var result = PlayResult{
+
+        // Test normal progression
+        var result = PlayResult{
             .play_type = .run_up_middle,
             .yards_gained = 3,
             .out_of_bounds = false,
@@ -742,18 +825,18 @@
             .is_turnover = false,
             .time_consumed = 6,
             .field_position = 50,
-            };
-    
+        };
+
         handler.updateGameState(&result);
         try std.testing.expectEqual(@as(u8, 2), handler.game_state.down);
         try std.testing.expectEqual(@as(u8, 7), handler.game_state.distance);
-    
-    // Test first down
+
+        // Test first down
         result.yards_gained = 7;
         result.is_first_down = true;
         handler.updateGameState(&result);
         try std.testing.expectEqual(@as(u8, 1), handler.game_state.down);
         try std.testing.expectEqual(@as(u8, 10), handler.game_state.distance);
-        }
+    }
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════════╝

@@ -1,0 +1,66 @@
+# Zig build artifacts
+zig-cache/
+zig-out/
+.zig-cache/
+
+# Build outputs
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.lib
+*.exe
+
+# Test artifacts
+*.test
+
+# Editor directories
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Claude Code
+.claude/
+
+# Debug files
+*.pdb
+*.ilk
+
+# Documentation build
+docs/_build/
+docs/.cache/
+
+# Temporary files
+*.tmp
+tmp/
+temp/
+
+# Log files
+*.log
+
+# Coverage reports
+*.gcov
+*.gcda
+*.gcno
+coverage/
+
+# Benchmark results
+benchmarks/results/
+*.bench
+
+# OS specific
+Thumbs.db
+.directory
+
+# Python cache (for scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local environment
+.env
+.env.local

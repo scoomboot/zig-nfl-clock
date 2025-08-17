@@ -1,8 +1,8 @@
-// time_formatter.test.zig — Tests for time formatting utilities
+// time_formatter.test.zig — Time formatter tests
 //
 // repo   : https://github.com/zig-nfl-clock
 // docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/time_formatter
-// author : https://github.com/maysara-elshewehy
+// author : https://github.com/fisty
 //
 // Vibe coded by Scoom.
 
@@ -206,6 +206,54 @@
         try testing.expectEqual(.critical, getTimeColorRecommendation(3, thresholds));
     }
 
+    test "unit: TimeFormatter: handles buffer aliasing in final minute formatting" {
+        var formatter = TimeFormatter.init(allocator);
+        
+        // Regression test for the exact panic scenario that was fixed
+        // These used to cause a panic due to buffer aliasing
+        const result1 = try formatter.formatTimeWithContext(45, 2, false);
+        try testing.expectEqualStrings("00:45 - Final minute", result1);
+        
+        const result2 = try formatter.formatTimeWithContext(30, 4, false);
+        try testing.expectEqualStrings("00:30 - Final minute", result2);
+        
+        // Verify buffer is still usable after multiple calls
+        const result3 = try formatter.formatTimeWithContext(15, 2, false);
+        try testing.expectEqualStrings("00:15 - Final minute", result3);
+    }
+
+    test "unit: TimeFormatter: handles final minute edge cases correctly" {
+        var formatter = TimeFormatter.init(allocator);
+        
+        // Test 0 seconds in final minute (quarters 2 and 4)
+        const zero_q2 = try formatter.formatTimeWithContext(0, 2, false);
+        try testing.expectEqualStrings("00:00 - Final minute", zero_q2);
+        
+        const zero_q4 = try formatter.formatTimeWithContext(0, 4, false);
+        try testing.expectEqualStrings("00:00 - Final minute", zero_q4);
+        
+        // Test exactly 60 seconds (boundary of final minute)
+        const sixty_q2 = try formatter.formatTimeWithContext(60, 2, false);
+        try testing.expectEqualStrings("01:00 - Final minute", sixty_q2);
+        
+        const sixty_q4 = try formatter.formatTimeWithContext(60, 4, false);
+        try testing.expectEqualStrings("01:00 - Final minute", sixty_q4);
+        
+        // Test 61 seconds (just outside final minute)
+        const sixtyone_q2 = try formatter.formatTimeWithContext(61, 2, false);
+        try testing.expectEqualStrings("01:01", sixtyone_q2);
+        
+        const sixtyone_q4 = try formatter.formatTimeWithContext(61, 4, false);
+        try testing.expectEqualStrings("01:01", sixtyone_q4);
+        
+        // Test quarters 1 and 3 (should not show final minute)
+        const q1_time = try formatter.formatTimeWithContext(30, 1, false);
+        try testing.expectEqualStrings("00:30", q1_time);
+        
+        const q3_time = try formatter.formatTimeWithContext(45, 3, false);
+        try testing.expectEqualStrings("00:45", q3_time);
+    }
+
     // └──────────────────────────────────────────────────────────────────────────┘
 
     // ┌──────────────────────────── Integration Tests ────────────────────────────┐
@@ -282,6 +330,38 @@
         // Test critical time with custom threshold
         const critical = formatter.formatPlayClock(3);
         try testing.expect(critical.is_critical);
+    }
+
+    test "integration: TimeFormatter: interaction between formatGameTime and formatTimeWithContext" {
+        var formatter = TimeFormatter.init(allocator);
+        
+        // Test that both methods work correctly in sequence without buffer corruption
+        const game_time1 = try formatter.formatGameTime(45, .standard);
+        try testing.expectEqualStrings("00:45", game_time1);
+        
+        const context_time1 = try formatter.formatTimeWithContext(45, 2, false);
+        try testing.expectEqualStrings("00:45 - Final minute", context_time1);
+        
+        // Now reverse the order
+        const context_time2 = try formatter.formatTimeWithContext(30, 4, false);
+        try testing.expectEqualStrings("00:30 - Final minute", context_time2);
+        
+        const game_time2 = try formatter.formatGameTime(30, .standard);
+        try testing.expectEqualStrings("00:30", game_time2);
+        
+        // Mix different formats
+        const compact = try formatter.formatGameTime(585, .compact);
+        try testing.expectEqualStrings("9:45", compact);
+        
+        const context_normal = try formatter.formatTimeWithContext(585, 1, false);
+        try testing.expectEqualStrings("09:45", context_normal);
+        
+        // Test two-minute warning
+        const two_min = try formatter.formatTimeWithContext(120, 2, true);
+        try testing.expectEqualStrings("Two-Minute Warning", two_min);
+        
+        const game_time3 = try formatter.formatGameTime(120, .standard);
+        try testing.expectEqualStrings("02:00", game_time3);
     }
 
     // └──────────────────────────────────────────────────────────────────────────┘
@@ -484,6 +564,70 @@
         
         const edge2 = try formatter.formatQuarter(255, false);
         try testing.expectEqualStrings("255th Quarter", edge2);
+    }
+
+    test "stress: TimeFormatter: no buffer corruption under repeated formatting" {
+        var formatter = TimeFormatter.init(allocator);
+        var prng = std.Random.DefaultPrng.init(42); // Deterministic seed
+        const random = prng.random();
+        
+        // Call formatTimeWithContext 1000+ times with various valid inputs
+        for (0..1500) |i| {
+            _ = i;
+            const seconds = random.intRangeAtMost(u32, 0, 900);
+            const quarter = random.intRangeAtMost(u8, 1, 4);
+            const is_two_min = random.boolean();
+            
+            const result = try formatter.formatTimeWithContext(seconds, quarter, is_two_min);
+            
+            // Verify result is valid (non-empty and contains expected patterns)
+            try testing.expect(result.len > 0);
+            
+            if (is_two_min) {
+                try testing.expect(std.mem.indexOf(u8, result, "Two-Minute Warning") != null);
+            } else if (seconds <= 60 and (quarter == 2 or quarter == 4)) {
+                try testing.expect(std.mem.indexOf(u8, result, "Final minute") != null);
+            } else {
+                // Should be a normal time format MM:SS
+                try testing.expect(std.mem.indexOf(u8, result, ":") != null);
+            }
+        }
+        
+        // Also stress test formatGameTime with different formats
+        for (0..1000) |i| {
+            _ = i;
+            const seconds = random.intRangeAtMost(u32, 0, 3600);
+            const format_choice = random.intRangeAtMost(u8, 0, 3);
+            
+            const format: TimeFormat = switch (format_choice) {
+                0 => .standard,
+                1 => .compact,
+                2 => .with_tenths,
+                3 => .full,
+                else => .standard,
+            };
+            
+            const result = try formatter.formatGameTime(seconds, format);
+            try testing.expect(result.len > 0);
+            try testing.expect(std.mem.indexOf(u8, result, ":") != null);
+        }
+        
+        // Stress test other formatting methods to ensure overall buffer integrity
+        for (0..500) |i| {
+            _ = i;
+            const play_seconds = random.intRangeAtMost(u32, 0, 40);
+            const play_result = formatter.formatPlayClock(play_seconds);
+            try testing.expect(play_result.text.len > 0);
+            
+            const quarter = random.intRangeAtMost(u8, 1, 6);
+            const is_ot = quarter > 4;
+            const quarter_result = try formatter.formatQuarter(quarter, is_ot);
+            try testing.expect(quarter_result.len > 0);
+            
+            const timeouts = random.intRangeAtMost(u8, 0, 3);
+            const timeout_result = try formatter.formatTimeouts(timeouts, "TestTeam");
+            try testing.expect(timeout_result.len > 0);
+        }
     }
 
     // └──────────────────────────────────────────────────────────────────────────┘

@@ -2,7 +2,7 @@
 //
 // repo   : https://github.com/zig-nfl-clock
 // docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/game_clock
-// author : https://github.com/maysara-elshewehy
+// author : https://github.com/fisty
 //
 // Vibe coded by Scoom.
 

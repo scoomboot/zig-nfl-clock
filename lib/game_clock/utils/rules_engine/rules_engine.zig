@@ -1,14 +1,20 @@
-// rules_engine.zig — NFL game clock rules engine  
+// rules_engine.zig — NFL clock rules implementation
 //
 // repo   : https://github.com/zig-nfl-clock
 // docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/rules_engine
-// author : https://github.com/maysara-elshewehy
+// author : https://github.com/fisty
 //
 // Vibe coded by Scoom.
 
 // ╔══════════════════════════════════════ PACK ══════════════════════════════════════╗
 
     const std = @import("std");
+
+    /// NFL clock rules engine implementation.
+    ///
+    /// This module implements the official NFL timing rules, managing clock behavior
+    /// based on play outcomes, game situations, and special circumstances like
+    /// two-minute warnings, timeouts, and penalties.
 
     /// NFL timing constants (in seconds)
     pub const TimingConstants = struct {
@@ -121,7 +127,13 @@
         /// Track if we're in hurry-up offense
         hurry_up_mode: bool,
 
-        /// Initialize rules engine with default game start
+        /// Initialize rules engine with default game start.
+        ///
+        /// Creates a new rules engine with standard NFL game settings.
+        ///
+        /// __Return__
+        ///
+        /// - Initialized RulesEngine with default game state
         pub fn init() RulesEngine {
             return .{
                 .situation = .{
@@ -140,7 +152,17 @@
             };
         }
 
-        /// Initialize with custom situation
+        /// Initialize with custom situation.
+        ///
+        /// Creates a rules engine with specified game situation.
+        ///
+        /// __Parameters__
+        ///
+        /// - `situation`: Custom game situation to initialize with
+        ///
+        /// __Return__
+        ///
+        /// - Initialized RulesEngine with custom situation
         pub fn initWithSituation(situation: GameSituation) RulesEngine {
             return .{
                 .situation = situation,
@@ -149,7 +171,18 @@
             };
         }
 
-        /// Process a play outcome and determine clock behavior
+        /// Process a play outcome and determine clock behavior.
+        ///
+        /// Evaluates the play outcome and applies NFL clock rules.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to RulesEngine
+        /// - `outcome`: The type of play that occurred
+        ///
+        /// __Return__
+        ///
+        /// - ClockDecision with appropriate clock management actions
         pub fn processPlay(self: *RulesEngine, outcome: PlayOutcome) ClockDecision {
             var decision = ClockDecision{
                 .should_stop = false,
@@ -254,7 +287,18 @@
             return decision;
         }
 
-        /// Process a penalty and determine clock impact
+        /// Process a penalty and determine clock impact.
+        ///
+        /// Evaluates penalty and applies appropriate clock rules.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to RulesEngine
+        /// - `penalty`: Information about the penalty
+        ///
+        /// __Return__
+        ///
+        /// - ClockDecision with penalty-specific clock behavior
         pub fn processPenalty(self: *RulesEngine, penalty: PenaltyInfo) ClockDecision {
             var decision = ClockDecision{
                 .should_stop = true,
@@ -295,7 +339,18 @@
             return decision;
         }
 
-        /// Check if timeout is available for team
+        /// Check if timeout is available for team.
+        ///
+        /// Verifies if specified team has remaining timeouts.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to RulesEngine
+        /// - `team`: Team to check timeouts for
+        ///
+        /// __Return__
+        ///
+        /// - Boolean indicating if timeout is available
         pub fn canCallTimeout(self: *RulesEngine, team: Team) bool {
             return switch (team) {
                 .home => self.situation.home_timeouts > 0,
@@ -303,7 +358,22 @@
             };
         }
 
-        /// Use a timeout
+        /// Use a timeout.
+        ///
+        /// Consumes one timeout for the specified team.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to RulesEngine
+        /// - `team`: Team using the timeout
+        ///
+        /// __Return__
+        ///
+        /// - void
+        ///
+        /// __Errors__
+        ///
+        /// - `NoTimeoutsRemaining`: When team has no timeouts left
         pub fn useTimeout(self: *RulesEngine, team: Team) !void {
             if (!self.canCallTimeout(team)) {
                 return error.NoTimeoutsRemaining;
@@ -315,7 +385,17 @@
             }
         }
 
-        /// Advance to next quarter
+        /// Advance to next quarter.
+        ///
+        /// Transitions game to the next quarter and resets timeouts at halftime.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to RulesEngine
+        ///
+        /// __Return__
+        ///
+        /// - void
         pub fn advanceQuarter(self: *RulesEngine) void {
             self.situation.quarter += 1;
             self.situation.time_remaining = TimingConstants.QUARTER_LENGTH;
@@ -335,7 +415,17 @@
             self.situation.is_two_minute_drill = false;
         }
 
-        /// Check if game is over
+        /// Check if game is over.
+        ///
+        /// Determines if the game has ended based on quarter and time.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to RulesEngine
+        ///
+        /// __Return__
+        ///
+        /// - Boolean indicating if game has ended
         pub fn isGameOver(self: *RulesEngine) bool {
             if (self.situation.is_overtime) {
                 // Overtime rules: sudden death in regular season
@@ -345,20 +435,52 @@
             return self.situation.quarter >= 4 and self.situation.time_remaining == 0;
         }
 
-        /// Check if half is over
+        /// Check if half is over.
+        ///
+        /// Determines if current half has ended.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to RulesEngine
+        ///
+        /// __Return__
+        ///
+        /// - Boolean indicating if half has ended
         pub fn isHalfOver(self: *RulesEngine) bool {
             return (self.situation.quarter == 2 or self.situation.quarter == 4) and 
                    self.situation.time_remaining == 0;
         }
 
-        /// Reset for new possession
+        /// Reset for new possession.
+        ///
+        /// Sets up game state for a team's new possession.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to RulesEngine
+        /// - `team`: Team taking possession
+        ///
+        /// __Return__
+        ///
+        /// - void
         pub fn newPossession(self: *RulesEngine, team: Team) void {
             self.situation.possession_team = team;
             self.situation.down = 1;
             self.situation.distance = 10;
         }
 
-        /// Update down and distance
+        /// Update down and distance.
+        ///
+        /// Updates game state based on yards gained on the play.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to RulesEngine
+        /// - `yards_gained`: Yards gained on the play (negative for loss)
+        ///
+        /// __Return__
+        ///
+        /// - void
         pub fn updateDownAndDistance(self: *RulesEngine, yards_gained: i8) void {
             const new_distance = @as(i16, self.situation.distance) - yards_gained;
             
@@ -387,7 +509,17 @@
 
 // ╔══════════════════════════════════════ CORE ══════════════════════════════════════╗
 
-    /// Check if two-minute warning should trigger
+    /// Check if two-minute warning should trigger.
+    ///
+    /// Determines if game is at the two-minute warning point.
+    ///
+    /// __Parameters__
+    ///
+    /// - `situation`: Current game situation
+    ///
+    /// __Return__
+    ///
+    /// - Boolean indicating if two-minute warning should occur
     pub fn shouldTriggerTwoMinuteWarning(situation: GameSituation) bool {
         // Two-minute warning occurs in 2nd and 4th quarters
         if (situation.quarter != 2 and situation.quarter != 4) {
@@ -398,7 +530,17 @@
         return situation.time_remaining == TimingConstants.TWO_MINUTE_WARNING;
     }
 
-    /// Check if we're inside two minutes of a half
+    /// Check if we're inside two minutes of a half.
+    ///
+    /// Determines if game is within final two minutes of a half.
+    ///
+    /// __Parameters__
+    ///
+    /// - `situation`: Current game situation
+    ///
+    /// __Return__
+    ///
+    /// - Boolean indicating if within two minutes
     pub fn isInsideTwoMinutes(situation: GameSituation) bool {
         return situation.is_two_minute_drill or 
                (situation.time_remaining <= TimingConstants.TWO_MINUTE_WARNING and
@@ -406,7 +548,18 @@
     }
 
 
-    /// Get time to subtract for a typical play
+    /// Get time to subtract for a typical play.
+    ///
+    /// Calculates expected time consumption based on play type.
+    ///
+    /// __Parameters__
+    ///
+    /// - `outcome`: Type of play executed
+    /// - `hurry_up`: Whether team is in hurry-up offense
+    ///
+    /// __Return__
+    ///
+    /// - Duration in seconds for the play
     pub fn getPlayDuration(outcome: PlayOutcome, hurry_up: bool) u32 {
         // Average play durations in seconds
         const base_duration: u32 = switch (outcome) {

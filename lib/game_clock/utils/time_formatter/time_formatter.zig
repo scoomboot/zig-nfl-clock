@@ -1,14 +1,20 @@
-// time_formatter.zig — Time formatting utilities for game clock display
+// time_formatter.zig — Time display and formatting utilities
 //
 // repo   : https://github.com/zig-nfl-clock
 // docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/time_formatter
-// author : https://github.com/maysara-elshewehy
+// author : https://github.com/fisty
 //
 // Vibe coded by Scoom.
 
 // ╔══════════════════════════════════════ PACK ══════════════════════════════════════╗
 
     const std = @import("std");
+
+    /// Time formatting utilities for NFL game clock display.
+    ///
+    /// This module provides comprehensive time formatting functions for various
+    /// NFL game clock display scenarios including game time, play clock, quarters,
+    /// timeouts, and contextual time displays with warning indicators.
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════╝
 
@@ -54,7 +60,7 @@
     pub const TimeFormatter = struct {
         allocator: std.mem.Allocator,
         thresholds: WarningThresholds,
-        buffer: [32]u8,
+        buffer: [128]u8,
 
         /// Initialize a new time formatter.
         ///
@@ -124,7 +130,8 @@
                 .with_tenths => blk: {
                     // For displaying final seconds with tenths
                     if (seconds < 10) {
-                        const tenths = @mod(@as(u32, @intCast(std.time.milliTimestamp())), 10);
+                        const timestamp = std.time.milliTimestamp();
+                        const tenths = @mod(@abs(timestamp), 10);
                         break :blk try std.fmt.bufPrint(&self.buffer, "00:{d:0>2}.{d}", .{ secs, tenths });
                     } else {
                         break :blk try std.fmt.bufPrint(&self.buffer, "{d:0>2}:{d:0>2}", .{ minutes, secs });
@@ -237,14 +244,15 @@
                 return try std.fmt.bufPrint(&self.buffer, "Two-Minute Warning", .{});
             }
 
-            const time_str = try self.formatGameTime(seconds, .standard);
-            
             // Check if we're in the final minute
             if (seconds <= 60 and (quarter == 2 or quarter == 4)) {
-                return try std.fmt.bufPrint(&self.buffer, "{s} - Final minute", .{time_str});
+                const minutes = seconds / 60;
+                const secs = seconds % 60;
+                return try std.fmt.bufPrint(&self.buffer, "{d:0>2}:{d:0>2} - Final minute", .{ minutes, secs });
             }
 
-            return time_str;
+            // Normal time formatting
+            return try self.formatGameTime(seconds, .standard);
         }
 
         /// Format elapsed game time.
@@ -357,9 +365,9 @@
     ///
     /// - Recommended display color state
     pub fn getTimeColorRecommendation(seconds: u32, thresholds: WarningThresholds) enum { normal, warning, critical } {
-        if (seconds <= thresholds.critical_time) {
+        if (seconds < thresholds.play_clock_warning) {
             return .critical;
-        } else if (seconds <= thresholds.play_clock_warning) {
+        } else if (seconds <= thresholds.critical_time) {
             return .warning;
         }
         return .normal;

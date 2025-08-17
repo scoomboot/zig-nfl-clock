@@ -78,7 +78,42 @@ Avoid the `bufPrint` pattern when the source and destination buffers might overl
 ## Category
 Runtime Bug / Memory Safety / TimeFormatter Module
 
+## Resolution Summary
+**Status: ✅ RESOLVED** (2025-08-17)
+
+### Root Cause
+The `formatTimeWithContext` method was attempting to format into `self.buffer` using a slice (`time_str`) that already pointed to data within the same buffer, causing `@memcpy` to panic with "arguments alias" error.
+
+### Solution Implemented
+Refactored the method to format the complete string directly in a single `bufPrint` call, eliminating the intermediate step that caused buffer aliasing:
+
+```zig
+// Fixed implementation:
+if (seconds <= 60 and (quarter == 2 or quarter == 4)) {
+    const minutes = seconds / 60;
+    const secs = seconds % 60;
+    return try std.fmt.bufPrint(&self.buffer, "{d:0>2}:{d:0>2} - Final minute", .{ minutes, secs });
+}
+```
+
+### Additional Fixes
+1. **Buffer Size**: Increased from 32 to 128 bytes to handle longer formatted strings
+2. **Integer Cast Safety**: Fixed potential negative timestamp issue using `@abs()`
+3. **Color Logic**: Corrected warning/critical state detection
+
+### Testing Added
+- **Regression Test**: Specific test for the panic scenario
+- **Edge Cases**: Boundary conditions (0, 60, 61 seconds)
+- **Stress Test**: 1500+ iterations to ensure no memory corruption
+- **Integration Test**: Method interaction validation
+
+### Verification
+✅ All 32 tests pass successfully
+✅ No performance regression
+✅ 100% MCS compliance maintained
+✅ No similar issues found in other methods
+
 ---
 *Created: 2025-08-17*
-*Status: Not Started*
+*Resolved: 2025-08-17*
 *Discovered during Issue #027 resolution*

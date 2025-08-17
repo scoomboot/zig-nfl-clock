@@ -12,6 +12,7 @@
 - ✅ [#026](026_reconcile_existing_implementation.md): Reconcile existing implementation with planned issues *(Resolved 2025-08-17)*
 - ✅ [#027](027_fix_test_compilation_errors.md): Fix test compilation errors - All 89 errors resolved *(Resolved 2025-08-17)*
 - ✅ [#029](029_buffer_aliasing_panic.md): **CRITICAL** - Buffer aliasing panic in TimeFormatter fixed *(Resolved 2025-08-17)*
+- ✅ [#030](030_project_housekeeping.md): Project housekeeping - Cleaned temp files and verified git tracking *(Resolved 2025-08-17)*
 
 ### ✅ Completed via Alternative Implementation (Issue #026)
 - ✅ [#001](001_create_directory_structure.md): Create MCS-compliant directory structure *(Completed)*
@@ -30,8 +31,7 @@
 - ✅ [#009](009_add_function_documentation.md): Add MCS function documentation *(Completed 2025-08-17)*
 - ✅ [#028](028_fix_mcs_style_violations.md): ~~Fix remaining MCS style violations~~ **100% MCS compliance achieved** *(Resolved 2025-08-17)*
 
-### 🟢 Phase 3: Housekeeping & Testing (Next Priority)
-- 🟢 [#030](030_project_housekeeping.md): **NEW** - Project housekeeping (clean temp files, fix git tracking)
+### 🟢 Phase 3: Testing (Next Priority)
 - 🟢 [#010](010_setup_test_categorization.md): Set up test categorization per MCS
 - 🟢 [#011](011_organize_test_data.md): Organize test data in INIT sections → [#010](010_setup_test_categorization.md)
 - 🟢 [#012](012_migrate_unit_tests.md): Enhanced testing across all modules

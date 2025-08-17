@@ -1,33 +1,43 @@
-# Issue #013: Migrate integration tests
+# Issue #013: Integration testing across enhanced modules
 
 ## Summary
-Port complex multi-component tests and add new integration tests for library-specific scenarios.
+Create comprehensive integration tests that validate interactions between the enhanced GameClock and utility modules.
 
 ## Description
-Migrate integration tests that validate interactions between multiple components (time management, rules engine, play handler). Create comprehensive scenario-based tests that verify the library works correctly in real-world usage patterns.
+Develop integration tests that verify the enhanced GameClock works correctly with utility modules, focusing on real-world usage patterns and cross-module interactions. Build upon the solid foundation of existing core tests.
 
 ## Acceptance Criteria
-- [ ] Migrate scenario tests:
-  - [ ] Complete game simulation test
-  - [ ] Quarter transition scenarios
-  - [ ] Two-minute drill scenarios
-  - [ ] Overtime scenarios
-- [ ] Migrate interaction tests:
-  - [ ] Clock and play clock synchronization
-  - [ ] Rules engine with play outcomes
-  - [ ] Time management with rules
-- [ ] Add library integration tests:
-  - [ ] API workflow tests
-  - [ ] Configuration change tests
-  - [ ] Error recovery tests
-  - [ ] Thread safety under load
-- [ ] Create end-to-end scenarios:
-  - [ ] Full quarter simulation
-  - [ ] Critical game situations
-  - [ ] Clock management sequences
-  - [ ] Special teams scenarios
-- [ ] Performance integration tests:
-  - [ ] Multiple games in parallel
+
+### 🔴 Core Integration (After #027)
+- [ ] **Enhanced GameClock + Utility Modules**:
+  - [ ] GameClock + TimeFormatter integration
+  - [ ] GameClock + RulesEngine integration
+  - [ ] GameClock + PlayHandler integration
+- [ ] **Enum Type Integration**:
+  - [ ] ClockState/PlayClockState with utility modules
+  - [ ] ClockSpeed functionality across modules
+  - [ ] ClockStoppingReason with rules processing
+
+### 🟡 Scenario Testing
+- [ ] **Real-world workflows**:
+  - [ ] Complete quarter with all modules
+  - [ ] Two-minute drill scenario
+  - [ ] Play clock expiration handling
+  - [ ] Clock speed changes during simulation
+- [ ] **Thread safety integration**:
+  - [ ] Concurrent access across modules
+  - [ ] Mutex protection validation
+  - [ ] State consistency under load
+
+### 🟢 Advanced Integration
+- [ ] **Performance scenarios**:
+  - [ ] High-speed simulation testing
+  - [ ] Memory usage across modules
+  - [ ] API response time validation
+- [ ] **Error handling integration**:
+  - [ ] Cross-module error propagation
+  - [ ] Recovery from utility module errors
+  - [ ] Graceful degradation testing
   - [ ] Rapid tick processing
   - [ ] Memory usage over time
 - [ ] Edge case scenarios:
@@ -37,67 +47,77 @@ Migrate integration tests that validate interactions between multiple components
   - [ ] Clock expiration during play
 
 ## Dependencies
-- [#012](012_migrate_unit_tests.md): Unit tests must be migrated first
+- 🔴 [#027](027_fix_test_compilation_errors.md): Utility modules must be functional for integration testing
+- [#012](012_migrate_unit_tests.md): Enhanced module testing foundation
 
 ## Implementation Notes
-Test structure example:
+
+### Integration Test Examples:
 ```zig
-test "integration: GameClock: complete quarter with multiple plays" {
-    var clock = GameClock.init();
+// Enhanced GameClock + TimeFormatter integration
+test "integration: GameClock + TimeFormatter: complete workflow" {
+    var clock = GameClock.init(allocator);
+    const formatter = TimeFormatter.init(allocator);
+    
     clock.start();
+    clock.setClockSpeed(.accelerated_2x);
     
-    // Simulate multiple plays
-    const plays = TestPlays.quarter_sequence;
-    for (plays) |play| {
-        clock.handlePlayOutcome(play, .{});
-        try testing.expect(clock.isValidState());
-    }
+    // Simulate game time
+    try clock.advancedTick(5); // 10 seconds at 2x speed
     
-    // Verify quarter ended properly
-    try testing.expect(clock.isQuarterEnd());
-    try testing.expectEqual(@as(u32, 0), clock.getSeconds());
+    // Format and validate
+    var buffer: [16]u8 = undefined;
+    const time_str = formatter.formatGameTime(clock.time_remaining, .standard);
+    const expected_time = clock.time_remaining;
+    
+    try testing.expect(clock.getClockState() == .running);
+    try testing.expect(time_str.len > 0);
 }
 
-test "integration: ClockManager: two-minute drill sequence" {
-    var clock = TestClockStates.two_minute_warning;
+// Thread safety integration test
+test "integration: GameClock: concurrent enum access" {
+    var clock = GameClock.init(allocator);
     
-    // Run two-minute drill
-    const result = runTwoMinuteDrill(&clock);
+    // Test mutex protection across new enum operations
+    clock.start();
+    clock.setClockSpeed(.accelerated_5x);
+    clock.setPlayClockDuration(.short_25);
     
-    // Verify correct behavior
-    try testing.expect(result.warning_triggered);
-    try testing.expect(result.clock_stopped_correctly);
-    try testing.expectEqual(@as(u32, 4), result.plays_executed);
+    // Verify state consistency
+    try testing.expectEqual(ClockState.running, clock.getClockState());
+    try testing.expectEqual(ClockSpeed.accelerated_5x, clock.getClockSpeed());
+    try testing.expectEqual(PlayClockDuration.short_25, clock.play_clock_duration);
 }
 ```
 
-Scenario categories:
-1. **Game flow**: Start to finish game sequences
-2. **Critical moments**: Two-minute, overtime, game-ending
-3. **Rule interactions**: Complex rule combinations
-4. **Performance**: Load and stress testing
-5. **Error handling**: Recovery from invalid states
+### Testing Strategy Focus:
+1. **Enhanced Feature Integration**: New enum types working with utility modules
+2. **Thread Safety**: Mutex protection across all enhanced features
+3. **Performance**: Clock speed functionality maintaining accuracy
+4. **Cross-Module**: GameClock state changes reflected in utility module behavior
 
 ## Testing Requirements
-- Test complete workflows, not just individual calls
-- Verify state consistency throughout scenarios
-- Check performance metrics meet requirements
-- Validate memory usage remains stable
-- Ensure thread safety with concurrent operations
+- Validate enhanced GameClock features work with utility modules
+- Verify new enum types integrate properly across modules
+- Test thread safety of mutex-protected operations
+- Ensure clock speed functionality works consistently
+- Validate utility module integration after #027 completion
 
-## Source Reference
-- Original integration tests in `/home/fisty/code/nfl-sim/src/game_clock.zig`
-- Focus on multi-step test scenarios
+## Current Foundation
+- **Core Integration**: GameClock internal integration already tested (43/43 tests)
+- **Enhanced Features**: Enum types, thread safety, speed control validated
+- **Utility Integration**: Blocked pending #027 resolution
 
 ## Estimated Time
-2 hours
+2 hours (after #027 completion)
 
 ## Priority
-🟡 Medium - System validation
+🟢 Medium - Validation of enhanced functionality
 
 ## Category
-Test Migration
+Integration Testing
 
 ---
 *Created: 2025-08-17*
-*Status: Not Started*
+*Updated: 2025-08-17 (Post-Issue #026 - Enhancement approach)*
+*Status: Waiting for Issue #027 resolution*

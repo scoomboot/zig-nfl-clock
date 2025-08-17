@@ -108,6 +108,7 @@
             var clock = GameClock.init(allocator);
             
             try clock.start();
+            clock.startPlayClock(); // Start play clock for it to tick
             const initial_time = clock.time_remaining;
             const initial_play_clock = clock.play_clock;
             
@@ -132,6 +133,7 @@
             var clock = GameClock.init(allocator);
             
             try clock.start();
+            clock.startPlayClock(); // Start play clock for it to tick
             clock.play_clock = 1;
             try clock.tick();
             
@@ -531,9 +533,12 @@
             // Test with 1 second remaining
             clock.time_remaining = 1;
             try testing.expect(!clock.isQuarterEnded());
+            const initial_quarter = clock.quarter;
             try clock.start();
             try clock.tick();
-            try testing.expect(clock.isQuarterEnded());
+            // After tick, quarter should have advanced due to automatic quarter transition
+            try testing.expect(clock.quarter != initial_quarter);
+            try testing.expectEqual(QUARTER_LENGTH_SECONDS, clock.time_remaining);
             
             // Test play clock at boundary
             clock.play_clock = 0;

@@ -34,6 +34,7 @@ Define and implement a consistent test categorization system for all tests in th
 
 ## Dependencies
 - [#009](009_add_function_documentation.md): Documentation standards in place
+- 🔴 [#027](027_fix_test_compilation_errors.md): Utility module tests must compile before categorization can be applied
 
 ## Implementation Notes
 Test naming format:

@@ -94,199 +94,255 @@
                 .buffer = undefined,
             };
         }
+
+        /// Format game clock time (quarter time).
+        ///
+        /// Returns formatted string in specified format.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to TimeFormatter
+        /// - `seconds`: Time in seconds to format
+        /// - `format`: Display format to use
+        ///
+        /// __Return__
+        ///
+        /// - Formatted time string or error
+        pub fn formatGameTime(self: *TimeFormatter, seconds: u32, format: TimeFormat) ![]const u8 {
+            const minutes = seconds / 60;
+            const secs = seconds % 60;
+
+            const result = switch (format) {
+                .standard => try std.fmt.bufPrint(&self.buffer, "{d:0>2}:{d:0>2}", .{ minutes, secs }),
+                .compact => blk: {
+                    if (minutes < 10) {
+                        break :blk try std.fmt.bufPrint(&self.buffer, "{d}:{d:0>2}", .{ minutes, secs });
+                    } else {
+                        break :blk try std.fmt.bufPrint(&self.buffer, "{d:0>2}:{d:0>2}", .{ minutes, secs });
+                    }
+                },
+                .with_tenths => blk: {
+                    // For displaying final seconds with tenths
+                    if (seconds < 10) {
+                        const tenths = @mod(@as(u32, @intCast(std.time.milliTimestamp())), 10);
+                        break :blk try std.fmt.bufPrint(&self.buffer, "00:{d:0>2}.{d}", .{ secs, tenths });
+                    } else {
+                        break :blk try std.fmt.bufPrint(&self.buffer, "{d:0>2}:{d:0>2}", .{ minutes, secs });
+                    }
+                },
+                .full => blk: {
+                    const hours = minutes / 60;
+                    const mins = minutes % 60;
+                    break :blk try std.fmt.bufPrint(&self.buffer, "{d:0>2}:{d:0>2}:{d:0>2}", .{ hours, mins, secs });
+                },
+            };
+
+            return result;
+        }
+
+        /// Format play clock time with warning indicators.
+        ///
+        /// Formats play clock and indicates warning states.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to TimeFormatter
+        /// - `seconds`: Play clock time in seconds
+        ///
+        /// __Return__
+        ///
+        /// - FormattedTime with text and warning flags
+        pub fn formatPlayClock(self: *TimeFormatter, seconds: u32) FormattedTime {
+            const text = std.fmt.bufPrint(&self.buffer, "{d:0>2}", .{seconds}) catch "00";
+            
+            return .{
+                .text = text,
+                .is_warning = seconds <= self.thresholds.play_clock_warning,
+                .is_critical = seconds <= 3,
+            };
+        }
+
+        /// Format quarter display.
+        ///
+        /// Formats quarter number with appropriate suffix.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to TimeFormatter
+        /// - `quarter`: Quarter number
+        /// - `is_overtime`: Whether in overtime period
+        ///
+        /// __Return__
+        ///
+        /// - Formatted quarter string
+        pub fn formatQuarter(self: *TimeFormatter, quarter: u8, is_overtime: bool) ![]const u8 {
+            if (is_overtime) {
+                if (quarter > 4) {
+                    const ot_period = quarter - 4;
+                    return try std.fmt.bufPrint(&self.buffer, "OT{d}", .{ot_period});
+                }
+                return try std.fmt.bufPrint(&self.buffer, "OT", .{});
+            }
+
+            const suffix = switch (quarter) {
+                1 => "st",
+                2 => "nd",
+                3 => "rd",
+                4 => "th",
+                else => "th",
+            };
+
+            return try std.fmt.bufPrint(&self.buffer, "{d}{s} Quarter", .{ quarter, suffix });
+        }
+
+        /// Format timeout display.
+        ///
+        /// Shows remaining timeouts for a team.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to TimeFormatter
+        /// - `timeouts_remaining`: Number of timeouts left
+        /// - `team_name`: Team name to display
+        ///
+        /// __Return__
+        ///
+        /// - Formatted timeout string
+        pub fn formatTimeouts(self: *TimeFormatter, timeouts_remaining: u8, team_name: []const u8) ![]const u8 {
+            if (timeouts_remaining == 0) {
+                return try std.fmt.bufPrint(&self.buffer, "{s}: No timeouts", .{team_name});
+            } else if (timeouts_remaining == 1) {
+                return try std.fmt.bufPrint(&self.buffer, "{s}: 1 timeout", .{team_name});
+            } else {
+                return try std.fmt.bufPrint(&self.buffer, "{s}: {d} timeouts", .{ team_name, timeouts_remaining });
+            }
+        }
+
+        /// Format time with contextual information.
+        ///
+        /// Adds context like two-minute warning or final minute.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to TimeFormatter
+        /// - `seconds`: Time remaining in seconds
+        /// - `quarter`: Current quarter number
+        /// - `is_two_minute_warning`: Whether at two-minute warning
+        ///
+        /// __Return__
+        ///
+        /// - Formatted time string with context
+        pub fn formatTimeWithContext(self: *TimeFormatter, seconds: u32, quarter: u8, is_two_minute_warning: bool) ![]const u8 {
+            if (is_two_minute_warning) {
+                return try std.fmt.bufPrint(&self.buffer, "Two-Minute Warning", .{});
+            }
+
+            const time_str = try self.formatGameTime(seconds, .standard);
+            
+            // Check if we're in the final minute
+            if (seconds <= 60 and (quarter == 2 or quarter == 4)) {
+                return try std.fmt.bufPrint(&self.buffer, "{s} - Final minute", .{time_str});
+            }
+
+            return time_str;
+        }
+
+        /// Format elapsed game time.
+        ///
+        /// Shows total time since game start.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to TimeFormatter
+        /// - `total_seconds`: Total elapsed seconds
+        ///
+        /// __Return__
+        ///
+        /// - Formatted elapsed time string
+        pub fn formatElapsedTime(self: *TimeFormatter, total_seconds: u32) ![]const u8 {
+            return try self.formatGameTime(total_seconds, .full);
+        }
+
+        /// Format time remaining with appropriate precision.
+        ///
+        /// Shows tenths of seconds when under 10 seconds.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to TimeFormatter
+        /// - `seconds`: Time remaining in seconds
+        /// - `show_tenths`: Whether to show tenths of seconds
+        ///
+        /// __Return__
+        ///
+        /// - Formatted time remaining string
+        pub fn formatTimeRemaining(self: *TimeFormatter, seconds: u32, show_tenths: bool) ![]const u8 {
+            if (show_tenths and seconds < 10) {
+                return try self.formatGameTime(seconds, .with_tenths);
+            }
+            return try self.formatGameTime(seconds, .standard);
+        }
+
+        /// Format score display.
+        ///
+        /// Shows both teams' scores with names.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to TimeFormatter
+        /// - `home_score`: Home team score
+        /// - `away_score`: Away team score
+        /// - `home_name`: Home team name
+        /// - `away_name`: Away team name
+        ///
+        /// __Return__
+        ///
+        /// - Formatted score string
+        pub fn formatScore(self: *TimeFormatter, home_score: u16, away_score: u16, home_name: []const u8, away_name: []const u8) ![]const u8 {
+            return try std.fmt.bufPrint(&self.buffer, "{s} {d} - {d} {s}", .{ away_name, away_score, home_score, home_name });
+        }
+
+        /// Format down and distance.
+        ///
+        /// Shows current down and yards to go.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to TimeFormatter
+        /// - `down`: Current down number (1-4)
+        /// - `distance`: Yards to first down
+        /// - `is_goal_to_go`: Whether in goal-to-go situation
+        ///
+        /// __Return__
+        ///
+        /// - Formatted down and distance string
+        pub fn formatDownAndDistance(self: *TimeFormatter, down: u8, distance: u8, is_goal_to_go: bool) ![]const u8 {
+            if (is_goal_to_go) {
+                const suffix = switch (down) {
+                    1 => "st",
+                    2 => "nd",
+                    3 => "rd",
+                    4 => "th",
+                    else => "th",
+                };
+                return try std.fmt.bufPrint(&self.buffer, "{d}{s} & Goal", .{ down, suffix });
+            }
+
+            const suffix = switch (down) {
+                1 => "st",
+                2 => "nd",
+                3 => "rd",
+                4 => "th",
+                else => "th",
+            };
+
+            return try std.fmt.bufPrint(&self.buffer, "{d}{s} & {d}", .{ down, suffix, distance });
+        }
     };
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════╝
 
 // ╔══════════════════════════════════════ CORE ══════════════════════════════════════╗
-
-    /// Format game clock time (quarter time).
-    ///
-    /// Returns formatted string in specified format.
-    ///
-    /// __Parameters__
-    ///
-    /// - `self`: Mutable reference to TimeFormatter
-    /// - `seconds`: Time in seconds to format
-    /// - `format`: Display format to use
-    ///
-    /// __Return__
-    ///
-    /// - Formatted time string or error
-    pub fn formatGameTime(self: *TimeFormatter, seconds: u32, format: TimeFormat) ![]const u8 {
-        const minutes = seconds / 60;
-        const secs = seconds % 60;
-
-        const result = switch (format) {
-            .standard => try std.fmt.bufPrint(&self.buffer, "{d:0>2}:{d:0>2}", .{ minutes, secs }),
-            .compact => blk: {
-                if (minutes < 10) {
-                    break :blk try std.fmt.bufPrint(&self.buffer, "{d}:{d:0>2}", .{ minutes, secs });
-                } else {
-                    break :blk try std.fmt.bufPrint(&self.buffer, "{d:0>2}:{d:0>2}", .{ minutes, secs });
-                }
-            },
-            .with_tenths => blk: {
-                // For displaying final seconds with tenths
-                if (seconds < 10) {
-                    const tenths = @mod(@as(u32, @intCast(std.time.milliTimestamp())), 10);
-                    break :blk try std.fmt.bufPrint(&self.buffer, "00:{d:0>2}.{d}", .{ secs, tenths });
-                } else {
-                    break :blk try std.fmt.bufPrint(&self.buffer, "{d:0>2}:{d:0>2}", .{ minutes, secs });
-                }
-            },
-            .full => blk: {
-                const hours = minutes / 60;
-                const mins = minutes % 60;
-                break :blk try std.fmt.bufPrint(&self.buffer, "{d:0>2}:{d:0>2}:{d:0>2}", .{ hours, mins, secs });
-            },
-        };
-
-        return result;
-    }
-
-    /// Format play clock time with warning indicators.
-    ///
-    /// Formats play clock and indicates warning states.
-    ///
-    /// __Parameters__
-    ///
-    /// - `self`: Mutable reference to TimeFormatter
-    /// - `seconds`: Play clock time in seconds
-    ///
-    /// __Return__
-    ///
-    /// - FormattedTime with text and warning flags
-    pub fn formatPlayClock(self: *TimeFormatter, seconds: u32) FormattedTime {
-        const text = std.fmt.bufPrint(&self.buffer, "{d:0>2}", .{seconds}) catch "00";
-        
-        return .{
-            .text = text,
-            .is_warning = seconds <= self.thresholds.play_clock_warning,
-            .is_critical = seconds <= 3,
-        };
-    }
-
-    /// Format quarter display.
-    ///
-    /// Formats quarter number with appropriate suffix.
-    ///
-    /// __Parameters__
-    ///
-    /// - `self`: Mutable reference to TimeFormatter
-    /// - `quarter`: Quarter number
-    /// - `is_overtime`: Whether in overtime period
-    ///
-    /// __Return__
-    ///
-    /// - Formatted quarter string
-    pub fn formatQuarter(self: *TimeFormatter, quarter: u8, is_overtime: bool) ![]const u8 {
-        if (is_overtime) {
-            if (quarter > 4) {
-                const ot_period = quarter - 4;
-                return try std.fmt.bufPrint(&self.buffer, "OT{d}", .{ot_period});
-            }
-            return try std.fmt.bufPrint(&self.buffer, "OT", .{});
-        }
-
-        const suffix = switch (quarter) {
-            1 => "st",
-            2 => "nd",
-            3 => "rd",
-            4 => "th",
-            else => "th",
-        };
-
-        return try std.fmt.bufPrint(&self.buffer, "{d}{s} Quarter", .{ quarter, suffix });
-    }
-
-    /// Format timeout display.
-    ///
-    /// Shows remaining timeouts for a team.
-    ///
-    /// __Parameters__
-    ///
-    /// - `self`: Mutable reference to TimeFormatter
-    /// - `timeouts_remaining`: Number of timeouts left
-    /// - `team_name`: Team name to display
-    ///
-    /// __Return__
-    ///
-    /// - Formatted timeout string
-    pub fn formatTimeouts(self: *TimeFormatter, timeouts_remaining: u8, team_name: []const u8) ![]const u8 {
-        if (timeouts_remaining == 0) {
-            return try std.fmt.bufPrint(&self.buffer, "{s}: No timeouts", .{team_name});
-        } else if (timeouts_remaining == 1) {
-            return try std.fmt.bufPrint(&self.buffer, "{s}: 1 timeout", .{team_name});
-        } else {
-            return try std.fmt.bufPrint(&self.buffer, "{s}: {d} timeouts", .{ team_name, timeouts_remaining });
-        }
-    }
-
-    /// Format time with contextual information.
-    ///
-    /// Adds context like two-minute warning or final minute.
-    ///
-    /// __Parameters__
-    ///
-    /// - `self`: Mutable reference to TimeFormatter
-    /// - `seconds`: Time remaining in seconds
-    /// - `quarter`: Current quarter number
-    /// - `is_two_minute_warning`: Whether at two-minute warning
-    ///
-    /// __Return__
-    ///
-    /// - Formatted time string with context
-    pub fn formatTimeWithContext(self: *TimeFormatter, seconds: u32, quarter: u8, is_two_minute_warning: bool) ![]const u8 {
-        if (is_two_minute_warning) {
-            return try std.fmt.bufPrint(&self.buffer, "Two-Minute Warning", .{});
-        }
-
-        const time_str = try self.formatGameTime(seconds, .standard);
-        
-        // Check if we're in the final minute
-        if (seconds <= 60 and (quarter == 2 or quarter == 4)) {
-            return try std.fmt.bufPrint(&self.buffer, "{s} - Final minute", .{time_str});
-        }
-
-        return time_str;
-    }
-
-    /// Format elapsed game time.
-    ///
-    /// Shows total time since game start.
-    ///
-    /// __Parameters__
-    ///
-    /// - `self`: Mutable reference to TimeFormatter
-    /// - `total_seconds`: Total elapsed seconds
-    ///
-    /// __Return__
-    ///
-    /// - Formatted elapsed time string
-    pub fn formatElapsedTime(self: *TimeFormatter, total_seconds: u32) ![]const u8 {
-        return try self.formatGameTime(total_seconds, .full);
-    }
-
-    /// Format time remaining with appropriate precision.
-    ///
-    /// Shows tenths of seconds when under 10 seconds.
-    ///
-    /// __Parameters__
-    ///
-    /// - `self`: Mutable reference to TimeFormatter
-    /// - `seconds`: Time remaining in seconds
-    /// - `show_tenths`: Whether to show tenths of seconds
-    ///
-    /// __Return__
-    ///
-    /// - Formatted time remaining string
-    pub fn formatTimeRemaining(self: *TimeFormatter, seconds: u32, show_tenths: bool) ![]const u8 {
-        if (show_tenths and seconds < 10) {
-            return try self.formatGameTime(seconds, .with_tenths);
-        }
-        return try self.formatGameTime(seconds, .standard);
-    }
 
     /// Get display color recommendation based on time remaining.
     ///
@@ -307,62 +363,6 @@
             return .warning;
         }
         return .normal;
-    }
-
-    /// Format score display.
-    ///
-    /// Shows both teams' scores with names.
-    ///
-    /// __Parameters__
-    ///
-    /// - `self`: Mutable reference to TimeFormatter
-    /// - `home_score`: Home team score
-    /// - `away_score`: Away team score
-    /// - `home_name`: Home team name
-    /// - `away_name`: Away team name
-    ///
-    /// __Return__
-    ///
-    /// - Formatted score string
-    pub fn formatScore(self: *TimeFormatter, home_score: u16, away_score: u16, home_name: []const u8, away_name: []const u8) ![]const u8 {
-        return try std.fmt.bufPrint(&self.buffer, "{s} {d} - {d} {s}", .{ away_name, away_score, home_score, home_name });
-    }
-
-    /// Format down and distance.
-    ///
-    /// Shows current down and yards to go.
-    ///
-    /// __Parameters__
-    ///
-    /// - `self`: Mutable reference to TimeFormatter
-    /// - `down`: Current down number (1-4)
-    /// - `distance`: Yards to first down
-    /// - `is_goal_to_go`: Whether in goal-to-go situation
-    ///
-    /// __Return__
-    ///
-    /// - Formatted down and distance string
-    pub fn formatDownAndDistance(self: *TimeFormatter, down: u8, distance: u8, is_goal_to_go: bool) ![]const u8 {
-        if (is_goal_to_go) {
-            const suffix = switch (down) {
-                1 => "st",
-                2 => "nd",
-                3 => "rd",
-                4 => "th",
-                else => "th",
-            };
-            return try std.fmt.bufPrint(&self.buffer, "{d}{s} & Goal", .{ down, suffix });
-        }
-
-        const suffix = switch (down) {
-            1 => "st",
-            2 => "nd",
-            3 => "rd",
-            4 => "th",
-            else => "th",
-        };
-
-        return try std.fmt.bufPrint(&self.buffer, "{d}{s} & {d}", .{ down, suffix, distance });
     }
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════╝

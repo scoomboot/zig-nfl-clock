@@ -1,26 +1,29 @@
 // play_handler.test.zig — Tests for play outcome processing
 //
 // repo   : https://github.com/zig-nfl-clock
-// docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/play_handler/play_handler.test.zig
+// docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/play_handler
 // author : https://github.com/maysara-elshewehy
 //
 // Vibe coded by Scoom.
 
-const testing = std.testing;
-const PlayHandler = @import("play_handler.zig").PlayHandler;
-const PlayType = @import("play_handler.zig").PlayType;
-const PlayResult = @import("play_handler.zig").PlayResult;
-const SpecialOutcome = @import("play_handler.zig").SpecialOutcome;
-const GameStateUpdate = @import("play_handler.zig").GameStateUpdate;
-const PlayStatistics = @import("play_handler.zig").PlayStatistics;
-const getExpectedPoints = @import("play_handler.zig").getExpectedPoints;
-const getHurryUpPlayTime = @import("play_handler.zig").getHurryUpPlayTime;
-const getNormalPlayTime = @import("play_handler.zig").getNormalPlayTime;
-
 // ╔══════════════════════════════════════ PACK ══════════════════════════════════════╗
 
     const std = @import("std");
+    const testing = std.testing;
     const allocator = testing.allocator;
+    
+    // Import core types from play_handler module
+    const PlayHandler = @import("play_handler.zig").PlayHandler;
+    const PlayType = @import("play_handler.zig").PlayType;
+    const PlayResult = @import("play_handler.zig").PlayResult;
+    const SpecialOutcome = @import("play_handler.zig").SpecialOutcome;
+    const GameStateUpdate = @import("play_handler.zig").GameStateUpdate;
+    const PlayStatistics = @import("play_handler.zig").PlayStatistics;
+    
+    // Import utility functions
+    const getExpectedPoints = @import("play_handler.zig").getExpectedPoints;
+    const getHurryUpPlayTime = @import("play_handler.zig").getHurryUpPlayTime;
+    const getNormalPlayTime = @import("play_handler.zig").getNormalPlayTime;
 
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════════╝
@@ -52,7 +55,7 @@ const getNormalPlayTime = @import("play_handler.zig").getNormalPlayTime;
 // ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
 
     test "unit: PlayHandler: initializes with correct default values" {
-        var handler = PlayHandler.init(12345);
+        const handler = PlayHandler.init(12345);
         
         try testing.expectEqual(@as(u8, 1), handler.game_state.down);
         try testing.expectEqual(@as(u8, 10), handler.game_state.distance);
@@ -79,7 +82,7 @@ const getNormalPlayTime = @import("play_handler.zig").getNormalPlayTime;
             .clock_running = true,
         };
         
-        var handler = PlayHandler.initWithState(custom_state, 54321);
+        const handler = PlayHandler.initWithState(custom_state, 54321);
         
         try testing.expectEqual(@as(u8, 3), handler.game_state.down);
         try testing.expectEqual(@as(u8, 7), handler.game_state.distance);
@@ -151,7 +154,7 @@ const getNormalPlayTime = @import("play_handler.zig").getNormalPlayTime;
     
     try testing.expectEqual(@as(u32, 0), handler.play_number);
     
-    _ = handler.processPlay(.run_inbounds, .{});
+    _ = handler.processPlay(.run_up_middle, .{});
     try testing.expectEqual(@as(u32, 1), handler.play_number);
     
     _ = handler.processPlay(.pass_short, .{});
@@ -609,7 +612,7 @@ const getNormalPlayTime = @import("play_handler.zig").getNormalPlayTime;
     
     for (0..100) |i| {
         // Alternate turnovers
-        const turnover_result = PlayResult{
+        var turnover_result = PlayResult{
             .play_type = if (i % 2 == 0) .interception else .fumble,
             .yards_gained = 0,
             .out_of_bounds = false,

@@ -1,29 +1,30 @@
 // rules_engine.test.zig — Tests for NFL game clock rules engine
 //
 // repo   : https://github.com/zig-nfl-clock
-// docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/rules_engine/rules_engine.test.zig
+// docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/rules_engine
 // author : https://github.com/maysara-elshewehy
 //
 // Vibe coded by Scoom.
 
-const testing = std.testing;
-const RulesEngine = @import("rules_engine.zig").RulesEngine;
-const PlayOutcome = @import("rules_engine.zig").PlayOutcome;
-const ClockStopReason = @import("rules_engine.zig").ClockStopReason;
-const GameSituation = @import("rules_engine.zig").GameSituation;
-const ClockDecision = @import("rules_engine.zig").ClockDecision;
-const PenaltyInfo = @import("rules_engine.zig").PenaltyInfo;
-const TimingConstants = @import("rules_engine.zig").TimingConstants;
-
-// Import utility functions
-const shouldTriggerTwoMinuteWarning = @import("rules_engine.zig").shouldTriggerTwoMinuteWarning;
-const isInsideTwoMinutes = @import("rules_engine.zig").isInsideTwoMinutes;
-const getPlayDuration = @import("rules_engine.zig").getPlayDuration;
-
 // ╔══════════════════════════════════════ PACK ══════════════════════════════════════╗
 
     const std = @import("std");
+    const testing = std.testing;
     const allocator = testing.allocator;
+    
+    // Import core types from rules_engine module
+    const RulesEngine = @import("rules_engine.zig").RulesEngine;
+    const PlayOutcome = @import("rules_engine.zig").PlayOutcome;
+    const ClockStopReason = @import("rules_engine.zig").ClockStopReason;
+    const GameSituation = @import("rules_engine.zig").GameSituation;
+    const ClockDecision = @import("rules_engine.zig").ClockDecision;
+    const PenaltyInfo = @import("rules_engine.zig").PenaltyInfo;
+    const TimingConstants = @import("rules_engine.zig").TimingConstants;
+    
+    // Import utility functions
+    const shouldTriggerTwoMinuteWarning = @import("rules_engine.zig").shouldTriggerTwoMinuteWarning;
+    const isInsideTwoMinutes = @import("rules_engine.zig").isInsideTwoMinutes;
+    const getPlayDuration = @import("rules_engine.zig").getPlayDuration;
 
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════════╝
@@ -56,7 +57,7 @@ const getPlayDuration = @import("rules_engine.zig").getPlayDuration;
 // ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
 
     test "unit: RulesEngine: initializes with default values" {
-        var engine = RulesEngine.init();
+        const engine = RulesEngine.init();
         
         try testing.expectEqual(@as(u8, 1), engine.situation.quarter);
         try testing.expectEqual(TimingConstants.QUARTER_LENGTH, engine.situation.time_remaining);
@@ -82,7 +83,7 @@ const getPlayDuration = @import("rules_engine.zig").getPlayDuration;
             .is_two_minute_drill = false,
         };
         
-        var engine = RulesEngine.initWithSituation(custom_situation);
+        const engine = RulesEngine.initWithSituation(custom_situation);
         
         try testing.expectEqual(@as(u8, 3), engine.situation.quarter);
         try testing.expectEqual(@as(u32, 450), engine.situation.time_remaining);
@@ -578,7 +579,7 @@ const getPlayDuration = @import("rules_engine.zig").getPlayDuration;
 
     test "stress: RulesEngine: handles extreme game situations" {
     // Test with minimum values
-    var min_situation = GameSituation{
+    const min_situation = GameSituation{
         .quarter = 1,
         .time_remaining = 0,
         .down = 1,
@@ -596,7 +597,7 @@ const getPlayDuration = @import("rules_engine.zig").getPlayDuration;
     try testing.expect(!engine.canCallTimeout(.away));
     
     // Test with maximum values
-    var max_situation = GameSituation{
+    const max_situation = GameSituation{
         .quarter = 255,
         .time_remaining = 999999,
         .down = 255,

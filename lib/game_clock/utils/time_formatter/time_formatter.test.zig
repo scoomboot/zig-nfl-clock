@@ -1,7 +1,7 @@
 // time_formatter.test.zig — Tests for time formatting utilities
 //
 // repo   : https://github.com/zig-nfl-clock
-// docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/time_formatter/time_formatter.test.zig
+// docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/time_formatter
 // author : https://github.com/maysara-elshewehy
 //
 // Vibe coded by Scoom.
@@ -50,7 +50,7 @@
     // ┌──────────────────────────── Unit Tests ────────────────────────────┐
 
     test "unit: TimeFormatter: initializes with default thresholds" {
-        var formatter = TimeFormatter.init(allocator);
+        const formatter = TimeFormatter.init(allocator);
         
         try testing.expectEqual(@as(u32, 5), formatter.thresholds.play_clock_warning);
         try testing.expectEqual(@as(u32, 120), formatter.thresholds.quarter_warning);
@@ -64,7 +64,7 @@
             .critical_time = 5,
         };
         
-        var formatter = TimeFormatter.initWithThresholds(allocator, custom_thresholds);
+        const formatter = TimeFormatter.initWithThresholds(allocator, custom_thresholds);
         
         try testing.expectEqual(@as(u32, 10), formatter.thresholds.play_clock_warning);
         try testing.expectEqual(@as(u32, 60), formatter.thresholds.quarter_warning);

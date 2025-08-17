@@ -1,7 +1,7 @@
 // play_handler.zig — Play outcome processing for game clock
 //
 // repo   : https://github.com/zig-nfl-clock
-// docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/play_handler/play_handler.zig
+// docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/play_handler
 // author : https://github.com/maysara-elshewehy
 //
 // Vibe coded by Scoom.
@@ -85,6 +85,9 @@
         successful_onside_kick,
     };
 
+    /// Possession team enum (unified type)
+    pub const PossessionTeam = enum { home, away };
+
     /// Game state after play
     pub const GameStateUpdate = struct {
         /// New down (1-4)
@@ -92,7 +95,7 @@
         /// Yards to go for first down
         distance: u8,
         /// Team with possession
-        possession: enum { home, away },
+        possession: PossessionTeam,
         /// Home team score
         home_score: u16,
         /// Away team score  
@@ -145,7 +148,7 @@
         /// Away team statistics
         away_stats: PlayStatistics,
         /// Current possession team
-        possession_team: enum { home, away },
+        possession_team: PossessionTeam,
         /// Play sequence number
         play_number: u32,
         /// Random number generator for play variations
@@ -188,56 +191,50 @@
                 .rng = prng.random(),
             };
         }
-    };
 
-
-// ╚══════════════════════════════════════════════════════════════════════════════════════════╝
-
-// ╔══════════════════════════════════════ CORE ══════════════════════════════════════╗
-
-    /// Process a play and update game state
-    pub fn processPlay(self: *PlayHandler, play_type: PlayType, options: struct {
-        yards_attempted: ?i16 = null,
-        kick_distance: ?u8 = null,
-        return_yards: ?i16 = null,
+        /// Process a play and update game state
+        pub fn processPlay(self: *PlayHandler, play_type: PlayType, options: struct {
+            yards_attempted: ?i16 = null,
+            kick_distance: ?u8 = null,
+            return_yards: ?i16 = null,
         }) PlayResult {
-        self.play_number += 1;
-        
-        var result = PlayResult{
-            .play_type = play_type,
-            .yards_gained = 0,
-            .out_of_bounds = false,
-            .pass_completed = false,
-            .is_touchdown = false,
-            .is_first_down = false,
-            .is_turnover = false,
-            .time_consumed = 0,
-            .field_position = 50, // Default midfield
+            self.play_number += 1;
+            
+            var result = PlayResult{
+                .play_type = play_type,
+                .yards_gained = 0,
+                .out_of_bounds = false,
+                .pass_completed = false,
+                .is_touchdown = false,
+                .is_first_down = false,
+                .is_turnover = false,
+                .time_consumed = 0,
+                .field_position = 50, // Default midfield
             };
 
             switch (play_type) {
-            .pass_short => result = self.processPassPlay(5, 75),
-            .pass_medium => result = self.processPassPlay(15, 60),
-            .pass_deep => result = self.processPassPlay(30, 35),
-            .screen_pass => result = self.processPassPlay(3, 70),
-            
-            .run_up_middle => result = self.processRunPlay(4, 15),
-            .run_off_tackle => result = self.processRunPlay(5, 20),
-            .run_sweep => result = self.processRunPlay(3, 25),
-            .quarterback_sneak => result = self.processRunPlay(1, 85),
-            
-            .punt => result = self.processPunt(options.kick_distance orelse 45),
-            .field_goal => result = self.processFieldGoal(options.kick_distance orelse 35),
-            .extra_point => result = self.processExtraPoint(),
-            .kickoff => result = self.processKickoff(options.return_yards orelse 25),
-            
-            .kneel_down => result = self.processKneelDown(),
-            .spike => result = self.processSpike(),
-            
-            .interception => result = self.processTurnover(.interception, options.return_yards orelse 10),
-            .fumble => result = self.processTurnover(.fumble, 0),
-            
-            else => {},
+                .pass_short => result = self.processPassPlay(5, 75),
+                .pass_medium => result = self.processPassPlay(15, 60),
+                .pass_deep => result = self.processPassPlay(30, 35),
+                .screen_pass => result = self.processPassPlay(3, 70),
+                
+                .run_up_middle => result = self.processRunPlay(4, 15),
+                .run_off_tackle => result = self.processRunPlay(5, 20),
+                .run_sweep => result = self.processRunPlay(3, 25),
+                .quarterback_sneak => result = self.processRunPlay(1, 85),
+                
+                .punt => result = self.processPunt(options.kick_distance orelse 45),
+                .field_goal => result = self.processFieldGoal(options.kick_distance orelse 35),
+                .extra_point => result = self.processExtraPoint(),
+                .kickoff => result = self.processKickoff(options.return_yards orelse 25),
+                
+                .kneel_down => result = self.processKneelDown(),
+                .spike => result = self.processSpike(),
+                
+                .interception => result = self.processTurnover(.interception, options.return_yards orelse 10),
+                .fumble => result = self.processTurnover(.fumble, 0),
+                
+                else => {},
             }
 
             // Update game state based on result
@@ -246,21 +243,115 @@
             // Update statistics
             self.updateStatistics(&result);
     
-        return result;
+            return result;
         }
 
-    /// Process a pass play
-    fn processPassPlay(self: *PlayHandler, target_yards: i16, completion_pct: u8) PlayResult {
+        /// Update game state after play
+        pub fn updateGameState(self: *PlayHandler, result: *PlayResult) void {
+            // Update time
+            if (self.game_state.time_remaining > result.time_consumed) {
+                self.game_state.time_remaining -= result.time_consumed;
+            } else {
+                self.game_state.time_remaining = 0;
+            }
+
+            // Update down and distance
+            if (result.is_touchdown) {
+                // Reset for kickoff
+                self.game_state.down = 1;
+                self.game_state.distance = 10;
+                // Add touchdown points
+                if (self.possession_team == .home) {
+                    self.game_state.home_score += 6;
+                } else {
+                    self.game_state.away_score += 6;
+                }
+            } else if (result.is_first_down) {
+                self.game_state.down = 1;
+                self.game_state.distance = 10;
+            } else if (result.is_turnover) {
+                // Change possession
+                self.possession_team = if (self.possession_team == .home) .away else .home;
+                self.game_state.possession = self.possession_team;
+                self.game_state.down = 1;
+                self.game_state.distance = 10;
+            } else {
+                // Normal down progression
+                if (self.game_state.down < 4) {
+                    self.game_state.down += 1;
+                    const new_distance = @as(i16, self.game_state.distance) - result.yards_gained;
+                    self.game_state.distance = @intCast(@max(0, new_distance));
+                } else {
+                    // Turnover on downs
+                    self.possession_team = if (self.possession_team == .home) .away else .home;
+                    self.game_state.possession = self.possession_team;
+                    self.game_state.down = 1;
+                    self.game_state.distance = 10;
+                }
+            }
+
+            // Update clock running status
+            self.game_state.clock_running = !result.out_of_bounds and 
+                                           result.pass_completed and 
+                                           !result.is_touchdown;
+    
+            // Reset play clock
+            self.game_state.play_clock = 40;
+        }
+
+        /// Update team statistics
+        pub fn updateStatistics(self: *PlayHandler, result: *const PlayResult) void {
+            const stats = if (self.possession_team == .home) &self.home_stats else &self.away_stats;
+    
+            // Update yardage
+            stats.total_yards += result.yards_gained;
+    
+            switch (result.play_type) {
+                .pass_short, .pass_medium, .pass_deep, .screen_pass => {
+                    if (result.pass_completed) {
+                        stats.passing_yards += result.yards_gained;
+                    }
+                },
+                .run_up_middle, .run_off_tackle, .run_sweep, .quarterback_sneak => {
+                    stats.rushing_yards += result.yards_gained;
+                },
+                else => {},
+            }
+    
+            // Update first downs
+            if (result.is_first_down) {
+                stats.first_downs += 1;
+            }
+    
+            // Update third down conversions
+            if (self.game_state.down == 3 and result.is_first_down) {
+                stats.third_down_conversions += 1;
+            }
+            if (self.game_state.down == 3) {
+                stats.third_down_attempts += 1;
+            }
+    
+            // Update turnovers
+            if (result.is_turnover) {
+                stats.turnovers += 1;
+            }
+    
+            // Update time of possession
+            stats.time_of_possession += result.time_consumed;
+        }
+
+        /// Process a pass play
+        fn processPassPlay(self: *PlayHandler, target_yards: i16, completion_pct: u8) PlayResult {
             var result = PlayResult{
-            .play_type = .pass_short,
-            .yards_gained = 0,
-            .out_of_bounds = false,
-            .pass_completed = false,
-            .is_touchdown = false,
-            .is_first_down = false,
-            .is_turnover = false,
-            .time_consumed = 5,
-            .field_position = 50,
+                .play_type = .pass_short,
+                .yards_gained = 0,
+                .out_of_bounds = false,
+                .pass_completed = false,
+                .is_touchdown = false,
+                .is_first_down = false,
+                .is_turnover = false,
+                .time_consumed = 5,
+                .field_position = 50,
             };
 
             // Determine if pass is complete
@@ -268,69 +359,69 @@
             result.pass_completed = roll <= completion_pct;
 
             if (result.pass_completed) {
-            // Calculate yards gained with variance
-            const variance = self.rng.intRangeAtMost(i16, -3, 5);
-            result.yards_gained = target_yards + variance;
-            result.time_consumed = 7;
-            
-            // Check for out of bounds (20% chance on sideline passes)
-            result.out_of_bounds = self.rng.intRangeAtMost(u8, 1, 100) <= 20;
-            
-            // Check for touchdown based on field position
-            const yards_to_endzone = @as(i16, 100) - @as(i16, self.getFieldPosition());
-            if (result.yards_gained >= yards_to_endzone) {
-                result.is_touchdown = true;
-                result.yards_gained = yards_to_endzone;
-            }
-            
-            // Check for first down
-            if (result.yards_gained >= self.game_state.distance) {
-                result.is_first_down = true;
-            }
+                // Calculate yards gained with variance
+                const variance = self.rng.intRangeAtMost(i16, -3, 5);
+                result.yards_gained = target_yards + variance;
+                result.time_consumed = 7;
+                
+                // Check for out of bounds (20% chance on sideline passes)
+                result.out_of_bounds = self.rng.intRangeAtMost(u8, 1, 100) <= 20;
+                
+                // Check for touchdown based on field position
+                const yards_to_endzone = @as(i16, 100) - @as(i16, self.getFieldPosition());
+                if (result.yards_gained >= yards_to_endzone) {
+                    result.is_touchdown = true;
+                    result.yards_gained = yards_to_endzone;
+                }
+                
+                // Check for first down
+                if (result.yards_gained >= self.game_state.distance) {
+                    result.is_first_down = true;
+                }
             } else {
-            // Incomplete pass
-            result.time_consumed = 4;
-            
-            // Small chance of interception on incomplete passes
-            if (self.rng.intRangeAtMost(u8, 1, 100) <= 3) {
-                result.is_turnover = true;
-                result.play_type = .interception;
-            }
+                // Incomplete pass
+                result.time_consumed = 4;
+                
+                // Small chance of interception on incomplete passes
+                if (self.rng.intRangeAtMost(u8, 1, 100) <= 3) {
+                    result.is_turnover = true;
+                    result.play_type = .interception;
+                }
             }
 
-        return result;
+            return result;
         }
 
-    /// Process a run play
-    fn processRunPlay(self: *PlayHandler, avg_yards: i16, big_play_pct: u8) PlayResult {
-        var result = PlayResult{
-            .play_type = .run_up_middle,
-            .yards_gained = 0,
-            .out_of_bounds = false,
-            .pass_completed = false,
-            .is_touchdown = false,
-            .is_first_down = false,
-            .is_turnover = false,
-            .time_consumed = 6,
-            .field_position = 50,
+        /// Process a run play
+        fn processRunPlay(self: *PlayHandler, avg_yards: i16, big_play_pct: u8) PlayResult {
+            var result = PlayResult{
+                .play_type = .run_up_middle,
+                .yards_gained = 0,
+                .out_of_bounds = false,
+                .pass_completed = false,
+                .is_touchdown = false,
+                .is_first_down = false,
+                .is_turnover = false,
+                .time_consumed = 6,
+                .field_position = 50,
             };
 
             // Check for big play
             const is_big_play = self.rng.intRangeAtMost(u8, 1, 100) <= big_play_pct;
     
             if (is_big_play) {
-            result.yards_gained = avg_yards + self.rng.intRangeAtMost(i16, 5, 20);
+                result.yards_gained = avg_yards + self.rng.intRangeAtMost(i16, 5, 20);
             } else {
-            // Normal distribution around average
-            const variance = self.rng.intRangeAtMost(i16, -2, 3);
-            result.yards_gained = avg_yards + variance;
+                // Normal distribution around average
+                const variance = self.rng.intRangeAtMost(i16, -2, 3);
+                result.yards_gained = avg_yards + variance;
             }
 
             // Check for fumble (1% chance)
             if (self.rng.intRangeAtMost(u8, 1, 100) <= 1) {
-            result.is_turnover = true;
-            result.play_type = .fumble;
-            result.yards_gained = 0;
+                result.is_turnover = true;
+                result.play_type = .fumble;
+                result.yards_gained = 0;
             }
 
             // Check for out of bounds (15% chance on outside runs)
@@ -339,33 +430,33 @@
             // Check for touchdown
             const yards_to_endzone = @as(i16, 100) - @as(i16, self.getFieldPosition());
             if (result.yards_gained >= yards_to_endzone) {
-            result.is_touchdown = true;
-            result.yards_gained = yards_to_endzone;
+                result.is_touchdown = true;
+                result.yards_gained = yards_to_endzone;
             }
 
             // Check for first down
             if (result.yards_gained >= self.game_state.distance) {
-            result.is_first_down = true;
+                result.is_first_down = true;
             }
 
             return result;
         }
 
-    /// Process a punt
-    fn processPunt(self: *PlayHandler, kick_distance: u8) PlayResult {
-        var result = PlayResult{
-            .play_type = .punt,
-            .yards_gained = 0,
-            .out_of_bounds = false,
-            .pass_completed = false,
-            .is_touchdown = false,
-            .is_first_down = false,
-            .is_turnover = true, // Punt is change of possession
-            .time_consumed = 6,
-            .field_position = 50,
+        /// Process a punt
+        fn processPunt(self: *PlayHandler, kick_distance: u8) PlayResult {
+            var result = PlayResult{
+                .play_type = .punt,
+                .yards_gained = 0,
+                .out_of_bounds = false,
+                .pass_completed = false,
+                .is_touchdown = false,
+                .is_first_down = false,
+                .is_turnover = true, // Punt is change of possession
+                .time_consumed = 6,
+                .field_position = 50,
             };
 
-        // Add variance to kick distance
+            // Add variance to kick distance
             const variance = self.rng.intRangeAtMost(i8, -5, 10);
             const actual_distance = @as(i16, kick_distance) + variance;
     
@@ -376,92 +467,92 @@
             // Check for touchback
             const field_pos = self.getFieldPosition();
             if (@as(i16, field_pos) + result.yards_gained > 100) {
-            result.yards_gained = @as(i16, 80) - @as(i16, field_pos); // Ball at 20
+                result.yards_gained = @as(i16, 80) - @as(i16, field_pos); // Ball at 20
             }
 
             return result;
         }
 
-    /// Process a field goal attempt
-    fn processFieldGoal(self: *PlayHandler, distance: u8) PlayResult {
-        var result = PlayResult{
-            .play_type = .field_goal,
-            .yards_gained = 0,
-            .out_of_bounds = false,
-            .pass_completed = false,
-            .is_touchdown = false,
-            .is_first_down = false,
-            .is_turnover = false,
-            .time_consumed = 5,
-            .field_position = 50,
+        /// Process a field goal attempt
+        fn processFieldGoal(self: *PlayHandler, distance: u8) PlayResult {
+            var result = PlayResult{
+                .play_type = .field_goal,
+                .yards_gained = 0,
+                .out_of_bounds = false,
+                .pass_completed = false,
+                .is_touchdown = false,
+                .is_first_down = false,
+                .is_turnover = false,
+                .time_consumed = 5,
+                .field_position = 50,
             };
 
-        // Calculate success rate based on distance
+            // Calculate success rate based on distance
             const success_rate: u8 = if (distance <= 30) 95
-            else if (distance <= 40) 85
-            else if (distance <= 50) 65
-            else 40;
+                else if (distance <= 40) 85
+                else if (distance <= 50) 65
+                else 40;
 
             const made = self.rng.intRangeAtMost(u8, 1, 100) <= success_rate;
     
             if (made) {
-            // Add 3 points
-            if (self.possession_team == .home) {
-                self.game_state.home_score += 3;
+                // Add 3 points
+                if (self.possession_team == .home) {
+                    self.game_state.home_score += 3;
+                } else {
+                    self.game_state.away_score += 3;
+                }
             } else {
-                self.game_state.away_score += 3;
-            }
-            } else {
-            // Missed FG - change of possession at spot of kick
-            result.is_turnover = true;
+                // Missed FG - change of possession at spot of kick
+                result.is_turnover = true;
             }
 
             return result;
         }
 
-    /// Process extra point attempt
-    fn processExtraPoint(self: *PlayHandler) PlayResult {
-        var result = PlayResult{
-            .play_type = .extra_point,
-            .yards_gained = 0,
-            .out_of_bounds = false,
-            .pass_completed = false,
-            .is_touchdown = false,
-            .is_first_down = false,
-            .is_turnover = false,
-            .time_consumed = 3,
-            .field_position = 50,
+        /// Process extra point attempt
+        fn processExtraPoint(self: *PlayHandler) PlayResult {
+            const result = PlayResult{
+                .play_type = .extra_point,
+                .yards_gained = 0,
+                .out_of_bounds = false,
+                .pass_completed = false,
+                .is_touchdown = false,
+                .is_first_down = false,
+                .is_turnover = false,
+                .time_consumed = 3,
+                .field_position = 50,
             };
 
-        // 95% success rate for extra points
+            // 95% success rate for extra points
             const made = self.rng.intRangeAtMost(u8, 1, 100) <= 95;
     
             if (made) {
-            if (self.possession_team == .home) {
-                self.game_state.home_score += 1;
-            } else {
-                self.game_state.away_score += 1;
-            }
+                if (self.possession_team == .home) {
+                    self.game_state.home_score += 1;
+                } else {
+                    self.game_state.away_score += 1;
+                }
             }
 
             return result;
         }
 
-    /// Process kickoff
-    fn processKickoff(self: *PlayHandler, return_yards: i16) PlayResult {
-        var result = PlayResult{
-            .play_type = .kickoff,
-            .yards_gained = 0,
-            .out_of_bounds = false,
-            .pass_completed = false,
-            .is_touchdown = false,
-            .is_first_down = false,
-            .is_turnover = true, // Change of possession
-            .time_consumed = 6,
-            .field_position = 25, // Default starting position
+        /// Process kickoff
+        fn processKickoff(self: *PlayHandler, return_yards: i16) PlayResult {
+            var result = PlayResult{
+                .play_type = .kickoff,
+                .yards_gained = 0,
+                .out_of_bounds = false,
+                .pass_completed = false,
+                .is_touchdown = false,
+                .is_first_down = false,
+                .is_turnover = true, // Change of possession
+                .time_consumed = 6,
+                .field_position = 25, // Default starting position
             };
 
-        // Add variance to return
+            // Add variance to return
             const variance = self.rng.intRangeAtMost(i16, -5, 10);
             const actual_return = return_yards + variance;
     
@@ -470,174 +561,87 @@
     
             // Small chance of touchdown return
             if (self.rng.intRangeAtMost(u8, 1, 100) <= 1) {
-            result.is_touchdown = true;
-            result.field_position = 100;
+                result.is_touchdown = true;
+                result.field_position = 100;
             }
 
             return result;
         }
 
-    /// Process kneel down
-    fn processKneelDown(self: *PlayHandler) PlayResult {
-        return PlayResult{
-            .play_type = .kneel_down,
-            .yards_gained = -1,
-            .out_of_bounds = false,
-            .pass_completed = false,
-            .is_touchdown = false,
-            .is_first_down = false,
-            .is_turnover = false,
-            .time_consumed = 40, // Full play clock
-            .field_position = self.getFieldPosition(),
+        /// Process kneel down
+        fn processKneelDown(self: *PlayHandler) PlayResult {
+            return PlayResult{
+                .play_type = .kneel_down,
+                .yards_gained = -1,
+                .out_of_bounds = false,
+                .pass_completed = false,
+                .is_touchdown = false,
+                .is_first_down = false,
+                .is_turnover = false,
+                .time_consumed = 40, // Full play clock
+                .field_position = self.getFieldPosition(),
             };
         }
 
-    /// Process spike to stop clock
-    fn processSpike(self: *PlayHandler) PlayResult {
-        return PlayResult{
-            .play_type = .spike,
-            .yards_gained = 0,
-            .out_of_bounds = false,
-            .pass_completed = false,
-            .is_touchdown = false,
-            .is_first_down = false,
-            .is_turnover = false,
-            .time_consumed = 1,
-            .field_position = self.getFieldPosition(),
+        /// Process spike to stop clock
+        fn processSpike(self: *PlayHandler) PlayResult {
+            return PlayResult{
+                .play_type = .spike,
+                .yards_gained = 0,
+                .out_of_bounds = false,
+                .pass_completed = false,
+                .is_touchdown = false,
+                .is_first_down = false,
+                .is_turnover = false,
+                .time_consumed = 1,
+                .field_position = self.getFieldPosition(),
             };
         }
 
-    /// Process turnover
-    fn processTurnover(self: *PlayHandler, turnover_type: PlayType, return_yards: i16) PlayResult {
-        var result = PlayResult{
-            .play_type = turnover_type,
-            .yards_gained = return_yards,
-            .out_of_bounds = false,
-            .pass_completed = false,
-            .is_touchdown = false,
-            .is_first_down = false,
-            .is_turnover = true,
-            .time_consumed = 8,
-            .field_position = self.getFieldPosition(),
+        /// Process turnover
+        fn processTurnover(self: *PlayHandler, turnover_type: PlayType, return_yards: i16) PlayResult {
+            var result = PlayResult{
+                .play_type = turnover_type,
+                .yards_gained = return_yards,
+                .out_of_bounds = false,
+                .pass_completed = false,
+                .is_touchdown = false,
+                .is_first_down = false,
+                .is_turnover = true,
+                .time_consumed = 8,
+                .field_position = self.getFieldPosition(),
             };
 
-        // Switch possession
+            // Switch possession
             self.possession_team = if (self.possession_team == .home) .away else .home;
             self.game_state.possession = self.possession_team;
 
             // Check for defensive touchdown
             if (self.rng.intRangeAtMost(u8, 1, 100) <= 5) {
-            result.is_touchdown = true;
-            if (self.possession_team == .home) {
-                self.game_state.home_score += 6;
-            } else {
-                self.game_state.away_score += 6;
-            }
+                result.is_touchdown = true;
+                if (self.possession_team == .home) {
+                    self.game_state.home_score += 6;
+                } else {
+                    self.game_state.away_score += 6;
+                }
             }
 
             return result;
         }
 
-    /// Update game state after play
-    fn updateGameState(self: *PlayHandler, result: *PlayResult) void {
-        // Update time
-            if (self.game_state.time_remaining > result.time_consumed) {
-            self.game_state.time_remaining -= result.time_consumed;
-            } else {
-            self.game_state.time_remaining = 0;
-            }
-
-            // Update down and distance
-            if (result.is_touchdown) {
-            // Reset for kickoff
-            self.game_state.down = 1;
-            self.game_state.distance = 10;
-            // Add touchdown points
-            if (self.possession_team == .home) {
-                self.game_state.home_score += 6;
-            } else {
-                self.game_state.away_score += 6;
-            }
-            } else if (result.is_first_down) {
-            self.game_state.down = 1;
-            self.game_state.distance = 10;
-            } else if (result.is_turnover) {
-            // Change possession
-            self.possession_team = if (self.possession_team == .home) .away else .home;
-            self.game_state.possession = self.possession_team;
-            self.game_state.down = 1;
-            self.game_state.distance = 10;
-            } else {
-            // Normal down progression
-            if (self.game_state.down < 4) {
-                self.game_state.down += 1;
-                const new_distance = @as(i16, self.game_state.distance) - result.yards_gained;
-                self.game_state.distance = @intCast(@max(0, new_distance));
-            } else {
-                // Turnover on downs
-                self.possession_team = if (self.possession_team == .home) .away else .home;
-                self.game_state.possession = self.possession_team;
-                self.game_state.down = 1;
-                self.game_state.distance = 10;
-            }
-            }
-
-            // Update clock running status
-            self.game_state.clock_running = !result.out_of_bounds and 
-                                        result.pass_completed and 
-                                        !result.is_touchdown;
-    
-            // Reset play clock
-            self.game_state.play_clock = 40;
-            }
-
-    /// Update team statistics
-    fn updateStatistics(self: *PlayHandler, result: *const PlayResult) void {
-            const stats = if (self.possession_team == .home) &self.home_stats else &self.away_stats;
-    
-            // Update yardage
-            stats.total_yards += result.yards_gained;
-    
-            switch (result.play_type) {
-            .pass_short, .pass_medium, .pass_deep, .screen_pass => {
-                if (result.pass_completed) {
-                    stats.passing_yards += result.yards_gained;
-                }
-            },
-            .run_up_middle, .run_off_tackle, .run_sweep, .quarterback_sneak => {
-                stats.rushing_yards += result.yards_gained;
-            },
-            else => {},
-            }
-    
-            // Update first downs
-            if (result.is_first_down) {
-            stats.first_downs += 1;
-            }
-    
-            // Update third down conversions
-            if (self.game_state.down == 3 and result.is_first_down) {
-            stats.third_down_conversions += 1;
-            }
-            if (self.game_state.down == 3) {
-            stats.third_down_attempts += 1;
-            }
-    
-            // Update turnovers
-            if (result.is_turnover) {
-            stats.turnovers += 1;
-            }
-    
-            // Update time of possession
-            stats.time_of_possession += result.time_consumed;
-            }
-
-    /// Get current field position (0-100, 0 = own end zone)
-    fn getFieldPosition(self: *PlayHandler) u8 {
+        /// Get current field position (0-100, 0 = own end zone)
+        fn getFieldPosition(self: *const PlayHandler) u8 {
             // Simplified field position tracking
             // In a real implementation, this would be tracked more precisely
+            _ = self; // Mark self as used
             return 50; // Midfield for now
-            }
+        }
+    };
+
+
+// ╚══════════════════════════════════════════════════════════════════════════════════════════╝
+
+// ╔══════════════════════════════════════ UTILS ═════════════════════════════════════╗
 
     /// Calculate expected points for current field position
     pub fn getExpectedPoints(field_position: u8) f32 {

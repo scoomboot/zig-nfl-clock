@@ -20,7 +20,7 @@
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════════╝
 
-// ╔══════════════════════════════════════ TYPES ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ INIT ══════════════════════════════════════╗
 
     /// Test data for format verification
     const FormatTestCase = struct {
@@ -42,6 +42,186 @@
         is_overtime: bool,
         expected: []const u8,
     };
+
+    // ┌──────────────────────────── Test Helpers ────────────────────────────┐
+
+    /// Creates a TimeFormatter with default test configuration
+    fn createTestFormatter() TimeFormatter {
+        return TimeFormatter.init(allocator);
+    }
+
+    /// Creates a TimeFormatter with custom warning thresholds
+    fn createTestFormatterWithThresholds(
+        play_clock_warning: u32,
+        quarter_warning: u32,
+        critical_time: u32,
+    ) TimeFormatter {
+        const thresholds = WarningThresholds{
+            .play_clock_warning = play_clock_warning,
+            .quarter_warning = quarter_warning,
+            .critical_time = critical_time,
+        };
+        return TimeFormatter.initWithThresholds(allocator, thresholds);
+    }
+
+    /// Creates test cases for time formatting
+    fn createTimeFormatTestCases() []const FormatTestCase {
+        return &[_]FormatTestCase{
+            .{ .seconds = 900, .format = .standard, .expected = "15:00" },
+            .{ .seconds = 0, .format = .standard, .expected = "00:00" },
+            .{ .seconds = 125, .format = .standard, .expected = "02:05" },
+            .{ .seconds = 59, .format = .standard, .expected = "00:59" },
+            .{ .seconds = 585, .format = .compact, .expected = "9:45" },
+            .{ .seconds = 3661, .format = .full, .expected = "01:01:01" },
+        };
+    }
+
+    /// Creates test cases for warning scenarios
+    fn createWarningTestCases() []const WarningTestCase {
+        return &[_]WarningTestCase{
+            .{ .seconds = 40, .expected_warning = false, .expected_critical = false },
+            .{ .seconds = 25, .expected_warning = false, .expected_critical = false },
+            .{ .seconds = 5, .expected_warning = true, .expected_critical = false },
+            .{ .seconds = 3, .expected_warning = true, .expected_critical = true },
+            .{ .seconds = 1, .expected_warning = true, .expected_critical = true },
+            .{ .seconds = 0, .expected_warning = true, .expected_critical = true },
+        };
+    }
+
+    /// Creates test cases for quarter formatting
+    fn createQuarterTestCases() []const QuarterTestCase {
+        return &[_]QuarterTestCase{
+            .{ .quarter = 1, .is_overtime = false, .expected = "1st Quarter" },
+            .{ .quarter = 2, .is_overtime = false, .expected = "2nd Quarter" },
+            .{ .quarter = 3, .is_overtime = false, .expected = "3rd Quarter" },
+            .{ .quarter = 4, .is_overtime = false, .expected = "4th Quarter" },
+            .{ .quarter = 5, .is_overtime = true, .expected = "OT1" },
+            .{ .quarter = 6, .is_overtime = true, .expected = "OT2" },
+        };
+    }
+
+    /// Asserts formatted time matches expected string
+    fn assertTimeFormat(actual: []const u8, expected: []const u8) !void {
+        try testing.expectEqualStrings(expected, actual);
+    }
+
+    /// Asserts warning states match expected values
+    fn assertWarningState(
+        result: FormattedTime,
+        expected_warning: bool,
+        expected_critical: bool,
+    ) !void {
+        try testing.expectEqual(expected_warning, result.is_warning);
+        try testing.expectEqual(expected_critical, result.is_critical);
+    }
+
+    /// Simulates game clock display updates
+    fn simulateClockDisplay(
+        formatter: *TimeFormatter,
+        start_time: u32,
+        end_time: u32,
+    ) ![]const u8 {
+        var current_time = start_time;
+        var last_display: []const u8 = "";
+        
+        while (current_time > end_time) : (current_time -= 1) {
+            last_display = try formatter.formatGameTime(current_time, .standard);
+        }
+        
+        return last_display;
+    }
+
+    /// Simulates complete quarter formatting
+    fn simulateQuarterDisplay(formatter: *TimeFormatter) !void {
+        for (1..5) |q| {
+            const quarter = @as(u8, @intCast(q));
+            const display = try formatter.formatQuarter(quarter, false);
+            try testing.expect(display.len > 0);
+        }
+        
+        // Overtime
+        const ot_display = try formatter.formatQuarter(5, true);
+        try testing.expect(std.mem.indexOf(u8, ot_display, "OT") != null);
+    }
+
+    /// Tests time formatting with various contexts
+    fn testTimeWithContext(
+        formatter: *TimeFormatter,
+        seconds: u32,
+        quarter: u8,
+        is_two_minute: bool,
+    ) ![]const u8 {
+        return try formatter.formatTimeWithContext(seconds, quarter, is_two_minute);
+    }
+
+    /// Creates comprehensive game situation display
+    fn createGameSituationDisplay(
+        formatter: *TimeFormatter,
+        time: u32,
+        quarter: u8,
+        down: u8,
+        distance: u8,
+        home_score: u16,
+        away_score: u16,
+    ) ![]const u8 {
+        var buffer: [256]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        const writer = fbs.writer();
+        
+        const time_str = try formatter.formatGameTime(time, .standard);
+        const quarter_str = try formatter.formatQuarter(quarter, false);
+        const down_str = try formatter.formatDownAndDistance(down, distance, false);
+        const score_str = try formatter.formatScore(home_score, away_score, "Home", "Away");
+        
+        try writer.print("{s} | {s} | {s} | {s}", .{ quarter_str, time_str, down_str, score_str });
+        
+        return fbs.getWritten();
+    }
+
+    /// Validates formatter buffer integrity
+    fn validateBufferIntegrity(formatter: *TimeFormatter) !void {
+        // Perform multiple format operations to ensure no corruption
+        _ = try formatter.formatGameTime(300, .standard);
+        _ = try formatter.formatTimeWithContext(45, 2, false);
+        _ = try formatter.formatQuarter(3, false);
+        _ = formatter.formatPlayClock(25);
+        _ = try formatter.formatDownAndDistance(2, 7, false);
+        _ = try formatter.formatTimeouts(2, "Team");
+        _ = try formatter.formatScore(21, 17, "Home", "Away");
+        
+        // If we get here without crashes, buffer integrity is maintained
+        try testing.expect(true);
+    }
+
+    /// Generates random time values for stress testing
+    fn generateRandomTimeValues(count: usize, seed: u64) []u32 {
+        var prng = std.Random.DefaultPrng.init(seed);
+        const random = prng.random();
+        const times = allocator.alloc(u32, count) catch unreachable;
+        
+        for (times) |*time| {
+            time.* = random.intRangeAtMost(u32, 0, 3600);
+        }
+        
+        return times;
+    }
+
+    /// Tests formatter performance with rapid updates
+    fn testFormatterPerformance(
+        formatter: *TimeFormatter,
+        iterations: usize,
+    ) !i64 {
+        const start_time = std.time.milliTimestamp();
+        
+        for (0..iterations) |i| {
+            const seconds = @as(u32, @intCast(i % 900));
+            _ = try formatter.formatGameTime(seconds, .standard);
+        }
+        
+        return std.time.milliTimestamp() - start_time;
+    }
+
+    // └──────────────────────────────────────────────────────────────────────────┘
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════════╝
 
@@ -428,6 +608,162 @@
         // Red zone
         const goal = try formatter.formatDownAndDistance(1, 0, true);
         try testing.expectEqualStrings("1st & Goal", goal);
+    }
+
+    // └──────────────────────────────────────────────────────────────────────────┘
+
+    // ┌──────────────────────────── Scenario Tests ────────────────────────────┐
+
+    test "scenario: TimeFormatter: displays broadcast-style game updates" {
+        var formatter = TimeFormatter.init(allocator);
+        
+        // Opening kickoff scenario
+        const q1_start = try formatter.formatQuarter(1, false);
+        const game_time = try formatter.formatGameTime(900, .standard);
+        const kickoff_down = try formatter.formatDownAndDistance(1, 10, false);
+        const initial_score = try formatter.formatScore(0, 0, "Patriots", "Giants");
+        
+        try testing.expectEqualStrings("1st Quarter", q1_start);
+        try testing.expectEqualStrings("15:00", game_time);
+        try testing.expectEqualStrings("1st & 10", kickoff_down);
+        try testing.expectEqualStrings("Giants 0 - 0 Patriots", initial_score);
+        
+        // Mid-game scenario - close game in 4th quarter
+        const q4_display = try formatter.formatQuarter(4, false);
+        const late_time = try formatter.formatGameTime(345, .standard); // 5:45 left
+        const crucial_down = try formatter.formatDownAndDistance(3, 8, false);
+        const close_score = try formatter.formatScore(21, 17, "Patriots", "Giants");
+        const timeout_status = try formatter.formatTimeouts(1, "Patriots");
+        
+        try testing.expectEqualStrings("4th Quarter", q4_display);
+        try testing.expectEqualStrings("05:45", late_time);
+        try testing.expectEqualStrings("3rd & 8", crucial_down);
+        try testing.expectEqualStrings("Giants 17 - 21 Patriots", close_score);
+        try testing.expectEqualStrings("Patriots: 1 timeout", timeout_status);
+        
+        // Final moments with play clock
+        const final_minute = try formatter.formatTimeWithContext(47, 4, false);
+        const play_clock_warning = formatter.formatPlayClock(8);
+        const field_goal_down = try formatter.formatDownAndDistance(4, 3, false);
+        
+        try testing.expectEqualStrings("00:47 - Final minute", final_minute);
+        try testing.expect(!play_clock_warning.is_warning); // 8 seconds not warning yet
+        try testing.expectEqualStrings("4th & 3", field_goal_down);
+        
+        // Overtime scenario
+        const ot_quarter = try formatter.formatQuarter(5, true);
+        const ot_time = try formatter.formatGameTime(480, .standard); // 8:00 left in OT
+        const tied_score = try formatter.formatScore(24, 24, "Patriots", "Giants");
+        const ot_timeouts = try formatter.formatTimeouts(2, "Giants");
+        
+        try testing.expectEqualStrings("OT1", ot_quarter);
+        try testing.expectEqualStrings("08:00", ot_time);
+        try testing.expectEqualStrings("Giants 24 - 24 Patriots", tied_score);
+        try testing.expectEqualStrings("Giants: 2 timeouts", ot_timeouts);
+    }
+
+    test "scenario: TimeFormatter: formats critical game moments" {
+        var formatter = TimeFormatter.init(allocator);
+        
+        // Two-minute warning scenario
+        const two_min_warning = try formatter.formatTimeWithContext(120, 2, true);
+        const warning_quarter = try formatter.formatQuarter(2, false);
+        const drive_situation = try formatter.formatDownAndDistance(2, 5, false);
+        const timeout_remaining = try formatter.formatTimeouts(2, "Cowboys");
+        
+        try testing.expectEqualStrings("Two-Minute Warning", two_min_warning);
+        try testing.expectEqualStrings("2nd Quarter", warning_quarter);
+        try testing.expectEqualStrings("2nd & 5", drive_situation);
+        try testing.expectEqualStrings("Cowboys: 2 timeouts", timeout_remaining);
+        
+        // Game-winning drive scenario
+        const final_drive_time = try formatter.formatTimeWithContext(23, 4, false);
+        const red_zone_down = try formatter.formatDownAndDistance(1, 0, true);
+        const winning_score = try formatter.formatScore(14, 17, "Cowboys", "Steelers");
+        const critical_play_clock = formatter.formatPlayClock(3);
+        
+        try testing.expectEqualStrings("00:23 - Final minute", final_drive_time);
+        try testing.expectEqualStrings("1st & Goal", red_zone_down);
+        try testing.expectEqualStrings("Steelers 17 - 14 Cowboys", winning_score);
+        try testing.expect(critical_play_clock.is_critical);
+        
+        // Hail Mary attempt
+        const hail_mary_time = try formatter.formatTimeWithContext(6, 4, false);
+        const long_down = try formatter.formatDownAndDistance(4, 12, false);
+        const desperation_score = try formatter.formatScore(10, 13, "Cowboys", "Steelers");
+        const no_timeouts = try formatter.formatTimeouts(0, "Cowboys");
+        
+        try testing.expectEqualStrings("00:06 - Final minute", hail_mary_time);
+        try testing.expectEqualStrings("4th & 12", long_down);
+        try testing.expectEqualStrings("Steelers 13 - 10 Cowboys", desperation_score);
+        try testing.expectEqualStrings("Cowboys: No timeouts", no_timeouts);
+        
+        // Field goal for the win
+        const field_goal_time = try formatter.formatTimeWithContext(3, 4, false);
+        const fg_distance = try formatter.formatDownAndDistance(4, 8, false);
+        const play_clock_expired = formatter.formatPlayClock(0);
+        
+        try testing.expectEqualStrings("00:03 - Final minute", field_goal_time);
+        try testing.expectEqualStrings("4th & 8", fg_distance);
+        try testing.expect(play_clock_expired.is_critical);
+        try testing.expectEqualStrings("00", play_clock_expired.text);
+    }
+
+    test "scenario: TimeFormatter: handles overtime period display" {
+        var formatter = TimeFormatter.init(allocator);
+        
+        // Start of first overtime
+        const ot1_quarter = try formatter.formatQuarter(5, true);
+        const ot_start_time = try formatter.formatGameTime(600, .standard);
+        const opening_drive = try formatter.formatDownAndDistance(1, 10, false);
+        const tied_game = try formatter.formatScore(21, 21, "Eagles", "Cowboys");
+        const ot_timeouts = try formatter.formatTimeouts(3, "Eagles");
+        
+        try testing.expectEqualStrings("OT1", ot1_quarter);
+        try testing.expectEqualStrings("10:00", ot_start_time);
+        try testing.expectEqualStrings("1st & 10", opening_drive);
+        try testing.expectEqualStrings("Cowboys 21 - 21 Eagles", tied_game);
+        try testing.expectEqualStrings("Eagles: 3 timeouts", ot_timeouts);
+        
+        // Middle of overtime - critical possession
+        const ot_mid_time = try formatter.formatGameTime(180, .standard); // 3:00 left
+        const ot_third_down = try formatter.formatDownAndDistance(3, 6, false);
+        const ot_play_clock = formatter.formatPlayClock(12);
+        const field_goal_range = try formatter.formatScore(21, 21, "Eagles", "Cowboys");
+        
+        try testing.expectEqualStrings("03:00", ot_mid_time);
+        try testing.expectEqualStrings("3rd & 6", ot_third_down);
+        try testing.expect(!ot_play_clock.is_warning); // 12 seconds is normal
+        try testing.expectEqualStrings("Cowboys 21 - 21 Eagles", field_goal_range);
+        
+        // End of overtime - sudden death opportunity
+        const ot_final_time = try formatter.formatGameTime(45, .standard);
+        const ot_goal_line = try formatter.formatDownAndDistance(2, 0, true);
+        const sudden_death_clock = formatter.formatPlayClock(5);
+        const no_timeouts_left = try formatter.formatTimeouts(0, "Cowboys");
+        
+        try testing.expectEqualStrings("00:45", ot_final_time);
+        try testing.expectEqualStrings("2nd & Goal", ot_goal_line);
+        try testing.expect(sudden_death_clock.is_warning);
+        try testing.expectEqualStrings("Cowboys: No timeouts", no_timeouts_left);
+        
+        // Multiple overtime periods (playoff scenario)
+        const ot2_quarter = try formatter.formatQuarter(6, true);
+        const ot2_start = try formatter.formatGameTime(600, .standard);
+        const still_tied = try formatter.formatScore(24, 24, "Eagles", "Cowboys");
+        
+        try testing.expectEqualStrings("OT2", ot2_quarter);
+        try testing.expectEqualStrings("10:00", ot2_start);
+        try testing.expectEqualStrings("Cowboys 24 - 24 Eagles", still_tied);
+        
+        // Simulate double overtime exhaustion
+        const ot2_late = try formatter.formatGameTime(30, .standard);
+        const desperation_play = try formatter.formatDownAndDistance(4, 15, false);
+        const late_ot_clock = formatter.formatPlayClock(2);
+        
+        try testing.expectEqualStrings("00:30", ot2_late);
+        try testing.expectEqualStrings("4th & 15", desperation_play);
+        try testing.expect(late_ot_clock.is_critical);
     }
 
     // └──────────────────────────────────────────────────────────────────────────┘

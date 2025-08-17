@@ -51,10 +51,276 @@
         expected_stop: bool,
     };
 
+    // ┌──────────────────────────── Test Helpers ────────────────────────────┐
+
+    /// Creates a RulesEngine with default test configuration
+    fn createTestRulesEngine() RulesEngine {
+        return RulesEngine.init();
+    }
+
+    /// Creates a RulesEngine with specific game situation
+    fn createTestRulesEngineWithSituation(situation: GameSituation) RulesEngine {
+        return RulesEngine.initWithSituation(situation);
+    }
+
+    /// Creates a GameSituation for specific test scenarios
+    fn createTestSituation(scenario: enum { 
+        regular_time,
+        two_minute_drill,
+        overtime,
+        end_of_half,
+        fourth_down
+    }) GameSituation {
+        return switch (scenario) {
+            .regular_time => GameSituation{
+                .quarter = 2,
+                .time_remaining = 450,
+                .down = 1,
+                .distance = 10,
+                .is_overtime = false,
+                .home_timeouts = 3,
+                .away_timeouts = 3,
+                .possession_team = .home,
+                .is_two_minute_drill = false,
+            },
+            .two_minute_drill => GameSituation{
+                .quarter = 4,
+                .time_remaining = 90,
+                .down = 1,
+                .distance = 10,
+                .is_overtime = false,
+                .home_timeouts = 2,
+                .away_timeouts = 1,
+                .possession_team = .away,
+                .is_two_minute_drill = true,
+            },
+            .overtime => GameSituation{
+                .quarter = 5,
+                .time_remaining = 600,
+                .down = 1,
+                .distance = 10,
+                .is_overtime = true,
+                .home_timeouts = 2,
+                .away_timeouts = 2,
+                .possession_team = .home,
+                .is_two_minute_drill = false,
+            },
+            .end_of_half => GameSituation{
+                .quarter = 2,
+                .time_remaining = 5,
+                .down = 3,
+                .distance = 8,
+                .is_overtime = false,
+                .home_timeouts = 1,
+                .away_timeouts = 0,
+                .possession_team = .home,
+                .is_two_minute_drill = false,
+            },
+            .fourth_down => GameSituation{
+                .quarter = 3,
+                .time_remaining = 600,
+                .down = 4,
+                .distance = 2,
+                .is_overtime = false,
+                .home_timeouts = 3,
+                .away_timeouts = 3,
+                .possession_team = .away,
+                .is_two_minute_drill = false,
+            },
+        };
+    }
+
+    /// Asserts that clock decision matches expected values
+    fn assertClockDecision(
+        decision: ClockDecision,
+        expected_stop: bool,
+        expected_reason: ?ClockStopReason,
+        expected_restart_on_ready: bool,
+        expected_restart_on_snap: bool
+    ) !void {
+        try testing.expectEqual(expected_stop, decision.should_stop);
+        try testing.expectEqual(expected_reason, decision.stop_reason);
+        try testing.expectEqual(expected_restart_on_ready, decision.restart_on_ready);
+        try testing.expectEqual(expected_restart_on_snap, decision.restart_on_snap);
+    }
+
+    /// Simulates a series of plays and returns final situation
+    fn simulateDrive(engine: *RulesEngine, plays: []const PlayOutcome) GameSituation {
+        for (plays) |play| {
+            _ = engine.processPlay(play);
+            // Update down and distance based on typical play results
+            if (play == .touchdown or play == .field_goal_attempt) {
+                engine.newPossession(if (engine.situation.possession_team == .home) .away else .home);
+            } else if (play == .punt or play == .interception or play == .fumble_out_of_bounds) {
+                engine.newPossession(if (engine.situation.possession_team == .home) .away else .home);
+            } else {
+                // Simulate yardage gain
+                const yards_gained: u8 = switch (play) {
+                    .incomplete_pass => 0,
+                    .complete_pass_inbounds => 7,
+                    .complete_pass_out_of_bounds => 8,
+                    .run_inbounds => 4,
+                    .run_out_of_bounds => 3,
+                    .sack => 0,
+                    else => 5,
+                };
+                engine.updateDownAndDistance(yards_gained);
+            }
+        }
+        return engine.situation;
+    }
+
+    /// Tests penalty processing with various scenarios
+    fn testPenaltyScenario(scenario: PenaltyScenario) !void {
+        var engine = RulesEngine.initWithSituation(scenario.situation);
+        const decision = engine.processPenalty(scenario.penalty);
+        
+        try testing.expectEqual(scenario.expected_stop, decision.should_stop);
+        if (scenario.expected_runoff) {
+            try testing.expect(engine.situation.time_remaining < scenario.situation.time_remaining);
+        }
+    }
+
+    /// Creates a penalty for testing
+    fn createTestPenalty(penalty_type: enum {
+        holding,
+        false_start,
+        delay_of_game,
+        pass_interference,
+        personal_foul
+    }) PenaltyInfo {
+        return switch (penalty_type) {
+            .holding => PenaltyInfo{
+                .yards = -10,
+                .clock_impact = .stop_clock,
+                .against_team = .offense,
+            },
+            .false_start => PenaltyInfo{
+                .yards = -5,
+                .clock_impact = .stop_clock,
+                .against_team = .offense,
+            },
+            .delay_of_game => PenaltyInfo{
+                .yards = -5,
+                .clock_impact = .ten_second_runoff,
+                .against_team = .offense,
+            },
+            .pass_interference => PenaltyInfo{
+                .yards = 15,
+                .clock_impact = .stop_clock,
+                .against_team = .defense,
+            },
+            .personal_foul => PenaltyInfo{
+                .yards = 15,
+                .clock_impact = .stop_clock,
+                .against_team = .defense,
+            },
+        };
+    }
+
+    /// Validates engine state invariants
+    fn validateEngineInvariants(engine: *const RulesEngine) !void {
+        // Down should be between 1 and 4
+        try testing.expect(engine.situation.down >= 1 and engine.situation.down <= 4);
+        
+        // Distance should be reasonable
+        try testing.expect(engine.situation.distance <= 99);
+        
+        // Timeouts should not exceed maximum
+        try testing.expect(engine.situation.home_timeouts <= 3);
+        try testing.expect(engine.situation.away_timeouts <= 3);
+        
+        // Quarter should be valid
+        if (!engine.situation.is_overtime) {
+            try testing.expect(engine.situation.quarter >= 1 and engine.situation.quarter <= 4);
+        }
+        
+        // Time remaining should be valid
+        if (!engine.situation.is_overtime) {
+            try testing.expect(engine.situation.time_remaining <= TimingConstants.QUARTER_LENGTH);
+        } else {
+            try testing.expect(engine.situation.time_remaining <= TimingConstants.OVERTIME_LENGTH);
+        }
+    }
+
+    /// Simulates a complete two-minute drill
+    fn simulateTwoMinuteDrill(engine: *RulesEngine) !u32 {
+        var plays_run: u32 = 0;
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 120;
+        engine.situation.is_two_minute_drill = true;
+        
+        while (engine.situation.time_remaining > 0 and plays_run < 20) {
+            const play_type: PlayOutcome = if (plays_run % 3 == 0)
+                .incomplete_pass
+            else if (plays_run % 3 == 1)
+                .complete_pass_out_of_bounds
+            else
+                .complete_pass_inbounds;
+            
+            const decision = engine.processPlay(play_type);
+            
+            // Simulate time consumption
+            const time_used = getPlayDuration(play_type, true);
+            if (engine.situation.time_remaining > time_used) {
+                engine.situation.time_remaining -= time_used;
+            } else {
+                engine.situation.time_remaining = 0;
+            }
+            
+            plays_run += 1;
+            
+            // Use timeout if needed and available
+            if (decision.should_stop and engine.situation.time_remaining < 30) {
+                if (engine.canCallTimeout(engine.situation.possession_team)) {
+                    try engine.useTimeout(engine.situation.possession_team);
+                }
+            }
+        }
+        
+        return plays_run;
+    }
+
+    /// Creates test data for various play outcomes
+    fn createPlayTestData() []const PlayScenario {
+        return &[_]PlayScenario{
+            .{
+                .name = "Incomplete pass stops clock",
+                .outcome = .incomplete_pass,
+                .situation = createTestSituation(.regular_time),
+                .expected_stop = true,
+                .expected_reason = .incomplete_pass,
+                .expected_restart_on_ready = false,
+                .expected_restart_on_snap = true,
+            },
+            .{
+                .name = "Run out of bounds outside 2 minutes",
+                .outcome = .run_out_of_bounds,
+                .situation = createTestSituation(.regular_time),
+                .expected_stop = true,
+                .expected_reason = .out_of_bounds,
+                .expected_restart_on_ready = true,
+                .expected_restart_on_snap = false,
+            },
+            .{
+                .name = "Touchdown stops clock",
+                .outcome = .touchdown,
+                .situation = createTestSituation(.regular_time),
+                .expected_stop = true,
+                .expected_reason = .score,
+                .expected_restart_on_ready = false,
+                .expected_restart_on_snap = false,
+            },
+        };
+    }
+
+    // └──────────────────────────────────────────────────────────────────────────┘
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════════╝
 
 // ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+
+    // ┌──────────────────────────── Unit Tests ────────────────────────────┐
 
     test "unit: RulesEngine: initializes with default values" {
         const engine = RulesEngine.init();
@@ -245,10 +511,9 @@
         try testing.expectEqual(@as(u32, 4), hurry_run);
     }
 
+    // └──────────────────────────────────────────────────────────────────────────┘
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════════╝
-
-// ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+    // ┌──────────────────────────── Integration Tests ────────────────────────────┐
 
     test "integration: RulesEngine: handles quarter transitions" {
         var engine = RulesEngine.init();
@@ -371,10 +636,9 @@
         try testing.expectEqual(@as(u8, 10), engine.situation.distance);
     }
 
+    // └──────────────────────────────────────────────────────────────────────────┘
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════════╝
-
-// ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+    // ┌──────────────────────────── End-to-End Tests ────────────────────────────┐
 
     test "e2e: RulesEngine: simulates two-minute drill" {
         var engine = RulesEngine.init();
@@ -469,10 +733,171 @@
         try testing.expectEqual(@as(u8, 10), engine.situation.distance);
     }
 
+    // └──────────────────────────────────────────────────────────────────────────┘
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════════╝
+    // ┌──────────────────────────── Scenario Tests ────────────────────────────┐
 
-// ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+    test "scenario: RulesEngine: manages complete two-minute drill sequence" {
+        var engine = RulesEngine.init();
+        
+        // Set up two-minute drill
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 120;
+        engine.situation.possession_team = .home;
+        engine.situation.home_timeouts = 2;
+        engine.situation.is_two_minute_drill = true;
+        engine.situation.down = 1;
+        engine.situation.distance = 10;
+        
+        // First play - incomplete pass to stop clock
+        var decision = engine.processPlay(.incomplete_pass);
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.incomplete_pass, decision.stop_reason);
+        engine.situation.down = 2;
+        engine.situation.time_remaining = 115; // 5 seconds for play
+        
+        // Second play - complete pass out of bounds
+        decision = engine.processPlay(.complete_pass_out_of_bounds);
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.out_of_bounds, decision.stop_reason);
+        try testing.expect(decision.restart_on_snap); // Inside 2 minutes
+        engine.updateDownAndDistance(12); // First down
+        engine.situation.time_remaining = 108;
+        
+        // Third play - run for first down (clock stops briefly)
+        engine.situation.down = 1;
+        decision = engine.processPlay(.run_inbounds);
+        try testing.expect(decision.should_stop); // First down stops clock
+        try testing.expectEqual(ClockStopReason.first_down, decision.stop_reason);
+        try testing.expect(decision.restart_on_ready);
+        engine.updateDownAndDistance(11);
+        engine.situation.time_remaining = 95;
+        
+        // Fourth play - use timeout
+        try engine.useTimeout(.home);
+        decision = engine.processPlay(.timeout);
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(@as(u8, 1), engine.situation.home_timeouts);
+        engine.situation.time_remaining = 88;
+        
+        // Fifth play - deep pass for touchdown attempt
+        decision = engine.processPlay(.complete_pass_inbounds);
+        engine.updateDownAndDistance(25);
+        engine.situation.time_remaining = 73;
+        
+        // Sixth play - spike to stop clock
+        decision = engine.processPlay(.incomplete_pass); // Spike is incomplete
+        try testing.expect(decision.should_stop);
+        engine.situation.down = 2;
+        engine.situation.time_remaining = 72;
+        
+        // Final timeout before field goal
+        try engine.useTimeout(.home);
+        try testing.expectEqual(@as(u8, 0), engine.situation.home_timeouts);
+        
+        // Field goal attempt
+        decision = engine.processPlay(.field_goal_attempt);
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.score, decision.stop_reason);
+        
+        // Verify drill management
+        try testing.expect(engine.situation.time_remaining < 120);
+        try testing.expect(engine.situation.is_two_minute_drill);
+    }
+
+    test "scenario: RulesEngine: handles game-winning field goal attempt" {
+        var engine = RulesEngine.init();
+        
+        // Set up game-winning FG scenario
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 8; // 8 seconds left
+        engine.situation.possession_team = .away;
+        engine.situation.away_timeouts = 0;
+        engine.situation.down = 4;
+        engine.situation.distance = 7;
+        
+        // Clock is running
+        engine.clock_running = true;
+        
+        // Field goal attempt with time expiring
+        const decision = engine.processPlay(.field_goal_attempt);
+        
+        // Clock should stop for score
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.score, decision.stop_reason);
+        
+        // No restart - game likely over or going to OT
+        try testing.expect(!decision.restart_on_ready);
+        try testing.expect(!decision.restart_on_snap);
+        
+        // Time should have run during the kick
+        engine.situation.time_remaining = 3; // ~5 seconds for FG
+        
+        // If FG is good, game over. If missed, other team gets ball
+        // This would trigger change of possession
+        if (engine.situation.time_remaining > 0) {
+            engine.newPossession(.home);
+            try testing.expectEqual(.home, engine.situation.possession_team);
+            try testing.expectEqual(@as(u8, 1), engine.situation.down);
+            
+            // With 3 seconds, likely just kneel down
+            const kneel_decision = engine.processPlay(.incomplete_pass); // or kneel
+            try testing.expect(kneel_decision.should_stop or engine.situation.time_remaining == 0);
+        }
+    }
+
+    test "scenario: RulesEngine: processes onside kick recovery" {
+        var engine = RulesEngine.init();
+        
+        // Set up onside kick scenario - team behind trying to get ball back
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 90;
+        engine.situation.possession_team = .home; // Just scored, about to kick
+        engine.situation.down = 1; // Kickoff is technically 1st down
+        
+        // Process kickoff (onside attempt)
+        var decision = engine.processPlay(.kickoff);
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.change_of_possession, decision.stop_reason);
+        
+        // Simulate onside kick recovery scenarios
+        
+        // Scenario 1: Kicking team recovers (home)
+        engine.situation.possession_team = .home; // Home recovers their own kick
+        engine.situation.down = 1;
+        engine.situation.distance = 10;
+        
+        // Continue drive
+        decision = engine.processPlay(.run_inbounds);
+        try testing.expect(!decision.should_stop); // Clock runs after recovery
+        engine.updateDownAndDistance(3);
+        
+        // Scenario 2: Receiving team recovers (reset to test)
+        engine.newPossession(.away);
+        engine.situation.time_remaining = 85;
+        
+        // Away team now has possession
+        try testing.expectEqual(.away, engine.situation.possession_team);
+        try testing.expectEqual(@as(u8, 1), engine.situation.down);
+        try testing.expectEqual(@as(u8, 10), engine.situation.distance);
+        
+        // They can run out clock or score
+        decision = engine.processPlay(.run_inbounds);
+        engine.updateDownAndDistance(4);
+        
+        // Inside two minutes, first downs stop clock
+        if (engine.situation.time_remaining <= 120) {
+            engine.situation.is_two_minute_drill = true;
+            engine.updateDownAndDistance(10); // Get first down
+            decision = engine.processPlay(.run_inbounds);
+            try testing.expect(decision.should_stop); // First down inside 2 min
+            try testing.expectEqual(ClockStopReason.first_down, decision.stop_reason);
+        }
+    }
+
+    // └──────────────────────────────────────────────────────────────────────────┘
+
+    // ┌──────────────────────────── Performance Tests ────────────────────────────┐
 
     test "performance: RulesEngine: processes plays quickly" {
         var engine = RulesEngine.init();
@@ -528,10 +953,9 @@
         try testing.expect(elapsed < 50);
     }
 
+    // └──────────────────────────────────────────────────────────────────────────┘
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════════╝
-
-// ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+    // ┌──────────────────────────── Stress Tests ────────────────────────────┐
 
     test "stress: RulesEngine: handles all play outcomes" {
         var engine = RulesEngine.init();

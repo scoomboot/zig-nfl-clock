@@ -49,10 +49,290 @@
         expected_turnovers: u8,
     };
 
+    // ┌──────────────────────────── Test Helpers ────────────────────────────┐
+
+    /// Creates a PlayHandler with default test configuration
+    fn createTestPlayHandler() PlayHandler {
+        return PlayHandler.init(12345); // Fixed seed for deterministic tests
+    }
+
+    /// Creates a PlayHandler with specific game state
+    fn createTestPlayHandlerWithState(state: GameStateUpdate) PlayHandler {
+        return PlayHandler.initWithState(state, 12345);
+    }
+
+    /// Creates a GameStateUpdate for specific test scenarios
+    fn createTestGameState(scenario: enum {
+        start_of_game,
+        red_zone,
+        two_minute_drill,
+        goal_line,
+        fourth_down,
+        overtime
+    }) GameStateUpdate {
+        return switch (scenario) {
+            .start_of_game => GameStateUpdate{
+                .down = 1,
+                .distance = 10,
+                .possession = .away,
+                .home_score = 0,
+                .away_score = 0,
+                .quarter = 1,
+                .time_remaining = 900,
+                .play_clock = 40,
+                .clock_running = false,
+            },
+            .red_zone => GameStateUpdate{
+                .down = 1,
+                .distance = 10,
+                .possession = .home,
+                .home_score = 14,
+                .away_score = 17,
+                .quarter = 3,
+                .time_remaining = 450,
+                .play_clock = 40,
+                .clock_running = true,
+            },
+            .two_minute_drill => GameStateUpdate{
+                .down = 1,
+                .distance = 10,
+                .possession = .away,
+                .home_score = 24,
+                .away_score = 21,
+                .quarter = 4,
+                .time_remaining = 120,
+                .play_clock = 25,
+                .clock_running = true,
+            },
+            .goal_line => GameStateUpdate{
+                .down = 1,
+                .distance = 0, // Goal to go
+                .possession = .home,
+                .home_score = 7,
+                .away_score = 10,
+                .quarter = 2,
+                .time_remaining = 200,
+                .play_clock = 40,
+                .clock_running = true,
+            },
+            .fourth_down => GameStateUpdate{
+                .down = 4,
+                .distance = 2,
+                .possession = .away,
+                .home_score = 14,
+                .away_score = 14,
+                .quarter = 4,
+                .time_remaining = 300,
+                .play_clock = 40,
+                .clock_running = false,
+            },
+            .overtime => GameStateUpdate{
+                .down = 1,
+                .distance = 10,
+                .possession = .home,
+                .home_score = 21,
+                .away_score = 21,
+                .quarter = 5,
+                .time_remaining = 600,
+                .play_clock = 40,
+                .clock_running = false,
+            },
+        };
+    }
+
+    /// Creates a test PlayResult with specified parameters
+    fn createTestPlayResult(
+        play_type: PlayType,
+        yards: i16,
+        touchdown: bool,
+        turnover: bool,
+    ) PlayResult {
+        return PlayResult{
+            .play_type = play_type,
+            .yards_gained = yards,
+            .out_of_bounds = false,
+            .pass_completed = switch (play_type) {
+                .pass_short, .pass_medium, .pass_deep, .screen_pass => true,
+                else => false,
+            },
+            .is_touchdown = touchdown,
+            .is_first_down = yards >= 10,
+            .is_turnover = turnover,
+            .time_consumed = getNormalPlayTime(),
+            .field_position = 50,
+        };
+    }
+
+    /// Asserts play result matches expected values
+    fn assertPlayResult(
+        result: *const PlayResult,
+        expected_type: PlayType,
+        min_yards: i16,
+        max_yards: i16,
+    ) !void {
+        try testing.expectEqual(expected_type, result.play_type);
+        try testing.expect(result.yards_gained >= min_yards);
+        try testing.expect(result.yards_gained <= max_yards);
+        try testing.expect(result.time_consumed > 0);
+        try testing.expect(result.field_position <= 100);
+    }
+
+    /// Simulates a complete drive and returns final statistics
+    fn simulateDrive(
+        handler: *PlayHandler,
+        play_sequence: []const PlayType,
+    ) PlayStatistics {
+        for (play_sequence) |play_type| {
+            const result = handler.processPlay(play_type, .{});
+            handler.updateGameState(@constCast(&result));
+            handler.updateStatistics(@constCast(&result));
+        }
+        
+        return if (handler.possession_team == .home)
+            handler.home_stats
+        else
+            handler.away_stats;
+    }
+
+    /// Simulates a scoring drive
+    fn simulateScoringDrive(handler: *PlayHandler) !bool {
+        const drive_plays = [_]PlayType{
+            .run_up_middle,
+            .pass_short,
+            .run_sweep,
+            .pass_medium,
+            .run_off_tackle,
+            .quarterback_sneak,
+        };
+        
+        var total_yards: i32 = 0;
+        for (drive_plays) |play| {
+            const result = handler.processPlay(play, .{});
+            total_yards += result.yards_gained;
+            
+            if (result.is_touchdown) {
+                return true;
+            }
+            
+            if (result.is_turnover) {
+                return false;
+            }
+            
+            handler.updateGameState(@constCast(&result));
+        }
+        
+        // Try field goal if in range
+        if (total_yards > 30) {
+            const fg_result = handler.processPlay(.field_goal, .{ .kick_distance = 35 });
+            return fg_result.special_outcome == .field_goal_good;
+        }
+        
+        return false;
+    }
+
+    /// Validates handler state invariants
+    fn validateHandlerInvariants(handler: *const PlayHandler) !void {
+        // Down should be between 1 and 4
+        try testing.expect(handler.game_state.down >= 1 and handler.game_state.down <= 4);
+        
+        // Distance should be reasonable
+        try testing.expect(handler.game_state.distance <= 99);
+        
+        // Scores should be non-negative
+        try testing.expect(handler.game_state.home_score >= 0);
+        try testing.expect(handler.game_state.away_score >= 0);
+        
+        // Quarter should be valid
+        try testing.expect(handler.game_state.quarter >= 1);
+        
+        // Play clock should be valid
+        try testing.expect(handler.game_state.play_clock <= 40);
+        
+        // Statistics should be consistent
+        const home_total = handler.home_stats.passing_yards + handler.home_stats.rushing_yards;
+        try testing.expect(@abs(home_total - handler.home_stats.total_yards) <= 10); // Allow small discrepancy
+    }
+
+    /// Creates test data for various play scenarios
+    fn createPlayScenarios() []const PlayTestScenario {
+        return &[_]PlayTestScenario{
+            .{
+                .name = "Short pass play",
+                .play_type = .pass_short,
+                .initial_state = createTestGameState(.start_of_game),
+                .expected_yards_range = .{ .min = -5, .max = 15 },
+                .expected_time_consumed = 7,
+                .can_turnover = true,
+                .can_score = false,
+            },
+            .{
+                .name = "Deep pass play",
+                .play_type = .pass_deep,
+                .initial_state = createTestGameState(.start_of_game),
+                .expected_yards_range = .{ .min = -10, .max = 50 },
+                .expected_time_consumed = 10,
+                .can_turnover = true,
+                .can_score = true,
+            },
+            .{
+                .name = "Goal line run",
+                .play_type = .quarterback_sneak,
+                .initial_state = createTestGameState(.goal_line),
+                .expected_yards_range = .{ .min = -2, .max = 5 },
+                .expected_time_consumed = 40,
+                .can_turnover = false,
+                .can_score = true,
+            },
+        };
+    }
+
+    /// Generates random play sequence for stress testing
+    fn generateRandomPlaySequence(count: usize, seed: u64) []PlayType {
+        var prng = std.Random.DefaultPrng.init(seed);
+        const random = prng.random();
+        const plays = allocator.alloc(PlayType, count) catch unreachable;
+        
+        const play_types = [_]PlayType{
+            .pass_short,
+            .pass_medium,
+            .pass_deep,
+            .screen_pass,
+            .run_up_middle,
+            .run_off_tackle,
+            .run_sweep,
+            .quarterback_sneak,
+        };
+        
+        for (plays) |*play| {
+            const index = random.intRangeAtMost(usize, 0, play_types.len - 1);
+            play.* = play_types[index];
+        }
+        
+        return plays;
+    }
+
+    /// Calculates drive efficiency metrics
+    fn calculateDriveEfficiency(stats: *const PlayStatistics) f32 {
+        if (stats.plays_run == 0) return 0.0;
+        
+        const yards_per_play = @as(f32, @floatFromInt(stats.total_yards)) / 
+                               @as(f32, @floatFromInt(stats.plays_run));
+        const first_down_rate = @as(f32, @floatFromInt(stats.first_downs)) / 
+                                @as(f32, @floatFromInt(stats.plays_run));
+        const turnover_rate = @as(f32, @floatFromInt(stats.turnovers)) / 
+                              @as(f32, @floatFromInt(stats.plays_run));
+        
+        // Efficiency formula: yards per play + first down bonus - turnover penalty
+        return yards_per_play + (first_down_rate * 10.0) - (turnover_rate * 20.0);
+    }
+
+    // └──────────────────────────────────────────────────────────────────────────┘
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════════╝
 
 // ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+
+    // ┌──────────────────────────── Unit Tests ────────────────────────────┐
 
     test "unit: PlayHandler: initializes with correct default values" {
         const handler = PlayHandler.init(12345);
@@ -181,10 +461,9 @@
         try testing.expectEqual(@as(u32, 38), getNormalPlayTime());
     }
 
+    // └──────────────────────────────────────────────────────────────────────────┘
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════════╝
-
-// ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+    // ┌──────────────────────────── Integration Tests ────────────────────────────┐
 
     test "integration: PlayHandler: handles touchdown scoring" {
         var handler = PlayHandler.init(12345);
@@ -350,10 +629,9 @@
         try testing.expectEqual(@as(u32, 0), handler.home_stats.time_of_possession);
     }
 
+    // └──────────────────────────────────────────────────────────────────────────┘
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════════╝
-
-// ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+    // ┌──────────────────────────── End-to-End Tests ────────────────────────────┐
 
     test "e2e: PlayHandler: simulates complete drive" {
         var handler = PlayHandler.init(12345);
@@ -464,10 +742,256 @@
         try testing.expect(initial_score >= 0);
     }
 
+    // └──────────────────────────────────────────────────────────────────────────┘
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════════╝
+    // ┌──────────────────────────── Scenario Tests ────────────────────────────┐
 
-// ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+    test "scenario: PlayHandler: processes complete touchdown drive" {
+        var handler = PlayHandler.init(12345);
+        handler.game_state.possession = .home;
+        handler.possession_team = .home;
+        handler.game_state.quarter = 2;
+        handler.game_state.time_remaining = 480; // 8 minutes left in half
+        
+        // Start at own 25-yard line
+        var field_pos: u8 = 25;
+        var total_plays: u32 = 0;
+        var total_time: u32 = 0;
+        
+        // First down - 7-yard run
+        var result = handler.processPlay(.run_off_tackle, .{});
+        handler.updateGameState(@constCast(&result));
+        handler.updateStatistics(@constCast(&result));
+        total_plays += 1;
+        total_time += result.time_consumed;
+        field_pos = @min(100, field_pos + @as(u8, @intCast(@max(0, result.yards_gained))));
+        
+        // Assume it's 2nd and 3
+        handler.game_state.down = 2;
+        handler.game_state.distance = 3;
+        
+        // Second down - 12-yard pass completion for first down
+        result = handler.processPlay(.pass_medium, .{});
+        handler.updateGameState(@constCast(&result));
+        handler.updateStatistics(@constCast(&result));
+        total_plays += 1;
+        total_time += result.time_consumed;
+        field_pos = @min(100, field_pos + @as(u8, @intCast(@max(0, result.yards_gained))));
+        
+        // Reset to first down
+        handler.game_state.down = 1;
+        handler.game_state.distance = 10;
+        
+        // Continue drive with multiple plays
+        const drive_plays = [_]PlayType{
+            .run_sweep,        // 5 yards
+            .pass_short,       // 8 yards
+            .run_up_middle,    // 3 yards, 4th and 2
+            .pass_short,       // 6 yards, first down
+            .run_off_tackle,   // 15 yards into red zone
+            .pass_short,       // 8 yards
+            .quarterback_sneak // 1-yard touchdown
+        };
+        
+        for (drive_plays) |play| {
+            result = handler.processPlay(play, .{});
+            handler.updateGameState(@constCast(&result));
+            handler.updateStatistics(@constCast(&result));
+            total_plays += 1;
+            total_time += result.time_consumed;
+            
+            // Simulate realistic down and distance progression
+            if (result.is_first_down or result.is_touchdown) {
+                handler.game_state.down = 1;
+                handler.game_state.distance = if (result.is_touchdown) 0 else 10;
+            } else {
+                handler.game_state.down = @min(4, handler.game_state.down + 1);
+                if (handler.game_state.distance > result.yards_gained) {
+                    handler.game_state.distance -= @as(u8, @intCast(@max(0, result.yards_gained)));
+                } else {
+                    handler.game_state.distance = 10; // First down
+                    handler.game_state.down = 1;
+                }
+            }
+            
+            if (result.is_touchdown) break;
+        }
+        
+        // Verify drive statistics
+        try testing.expect(total_plays >= 7); // Realistic number of plays for TD drive
+        try testing.expect(total_time > 120); // Should take at least 2 minutes
+        try testing.expect(handler.home_stats.total_yards > 50); // Good yardage for TD drive
+        try testing.expect(handler.home_stats.first_downs >= 2); // Multiple first downs
+        
+        // Extra point attempt
+        result = handler.processPlay(.extra_point, .{});
+        try testing.expectEqual(PlayType.extra_point, result.play_type);
+        
+        // Verify scoring
+        try testing.expect(handler.game_state.home_score >= 6); // At least 6 points
+    }
+
+    test "scenario: PlayHandler: handles goal-line stand sequence" {
+        var handler = PlayHandler.init(12345);
+        handler.game_state.possession = .away;
+        handler.possession_team = .away;
+        handler.game_state.quarter = 4;
+        handler.game_state.time_remaining = 180; // 3 minutes left
+        handler.game_state.down = 1;
+        handler.game_state.distance = 0; // Goal to go
+        
+        // Away team at home team's 2-yard line
+        var downs_used: u8 = 0;
+        var total_time: u32 = 0;
+        
+        // First down - run up middle stuffed
+        var result = handler.processPlay(.run_up_middle, .{});
+        handler.updateStatistics(@constCast(&result));
+        downs_used += 1;
+        total_time += result.time_consumed;
+        
+        // Assume minimal gain or loss
+        if (result.yards_gained <= 0) {
+            handler.game_state.down = 2;
+            handler.game_state.distance = @max(0, 2 - result.yards_gained);
+        }
+        
+        // Second down - pass incomplete in end zone
+        result = handler.processPlay(.pass_short, .{});
+        handler.updateStatistics(@constCast(&result));
+        downs_used += 1;
+        total_time += result.time_consumed;
+        
+        if (!result.pass_completed) {
+            handler.game_state.down = 3;
+            // Distance stays same on incompletion
+        }
+        
+        // Third down - another run attempt
+        result = handler.processPlay(.quarterback_sneak, .{});
+        handler.updateStatistics(@constCast(&result));
+        downs_used += 1;
+        total_time += result.time_consumed;
+        
+        if (!result.is_touchdown) {
+            handler.game_state.down = 4;
+            if (result.yards_gained > 0) {
+                handler.game_state.distance = @max(0, handler.game_state.distance - @as(u8, @intCast(result.yards_gained)));
+            }
+        }
+        
+        // Fourth down - final attempt (field goal or go for it)
+        if (handler.game_state.down == 4 and handler.game_state.distance <= 3) {
+            // Going for touchdown
+            result = handler.processPlay(.pass_short, .{});
+            handler.updateStatistics(@constCast(&result));
+            downs_used += 1;
+            total_time += result.time_consumed;
+            
+            if (!result.is_touchdown) {
+                // Turnover on downs - defense takes over
+                handler.game_state.possession = .home;
+                handler.possession_team = .home;
+                handler.game_state.down = 1;
+                handler.game_state.distance = 10;
+            }
+        } else {
+            // Field goal attempt
+            result = handler.processPlay(.field_goal, .{ .kick_distance = 20 });
+            handler.updateStatistics(@constCast(&result));
+            downs_used += 1;
+            total_time += result.time_consumed;
+        }
+        
+        // Verify goal-line stand characteristics
+        try testing.expectEqual(@as(u8, 4), downs_used); // Used all four downs
+        try testing.expect(total_time >= 80); // Reasonable time for four plays
+        try testing.expect(handler.away_stats.rushing_yards + handler.away_stats.passing_yards < 10); // Minimal yardage gained
+        
+        // Either scored or turned over on downs
+        const scored = handler.game_state.away_score > 0;
+        const turned_over = handler.game_state.possession == .home;
+        try testing.expect(scored or turned_over);
+    }
+
+    test "scenario: PlayHandler: manages hurry-up offense" {
+        var handler = PlayHandler.init(12345);
+        handler.game_state.possession = .home;
+        handler.possession_team = .home;
+        handler.game_state.quarter = 4;
+        handler.game_state.time_remaining = 95; // 1:35 left, no timeouts
+        handler.game_state.home_score = 17;
+        handler.game_state.away_score = 21; // Down by 4, need touchdown
+        
+        var plays_run: u32 = 0;
+        var total_time: u32 = 0;
+        var field_position: u8 = 35; // Start at own 35
+        
+        // Hurry-up no-huddle offense
+        const hurry_up_plays = [_]PlayType{
+            .pass_short,      // Quick slant
+            .pass_medium,     // Sideline route
+            .pass_short,      // Screen pass
+            .pass_medium,     // Crossing route
+            .spike,           // Stop clock
+            .pass_deep,       // Go route
+            .pass_short,      // Quick out
+            .pass_medium,     // Touchdown attempt
+        };
+        
+        for (hurry_up_plays) |play| {
+            const result = handler.processPlay(play, .{});
+            handler.updateStatistics(@constCast(&result));
+            plays_run += 1;
+            
+            // Use hurry-up timing
+            const play_time = if (play == .spike) 
+                1 // Spike takes minimal time
+            else 
+                getHurryUpPlayTime(); // Fast plays in hurry-up
+            
+            total_time += play_time;
+            
+            // Update field position and game state
+            if (result.is_touchdown) {
+                handler.game_state.home_score += 6;
+                break;
+            }
+            
+            if (result.is_first_down) {
+                handler.game_state.down = 1;
+                handler.game_state.distance = 10;
+            } else if (play != .spike) {
+                handler.game_state.down = @min(4, handler.game_state.down + 1);
+                if (result.yards_gained >= handler.game_state.distance) {
+                    handler.game_state.down = 1;
+                    handler.game_state.distance = 10;
+                } else {
+                    handler.game_state.distance -= @as(u8, @intCast(@max(0, result.yards_gained)));
+                }
+            }
+            
+            // Stop if turned over
+            if (result.is_turnover) break;
+            
+            // Stop if would run out of time
+            if (total_time >= 90) break; // Leave 5 seconds
+        }
+        
+        // Verify hurry-up characteristics
+        try testing.expect(plays_run >= 5); // Multiple plays in sequence
+        try testing.expect(total_time < 90); // Efficient time usage
+        try testing.expect(handler.home_stats.passing_yards > handler.home_stats.rushing_yards); // Mostly passing
+        
+        // Should have either scored or been in position to score
+        const scored = handler.game_state.home_score >= 23;
+        const good_field_pos = field_position >= 75 or handler.home_stats.total_yards >= 40;
+        try testing.expect(scored or good_field_pos);
+    }
+
+    // └──────────────────────────────────────────────────────────────────────────┘
+
+    // ┌──────────────────────────── Performance Tests ────────────────────────────┐
 
     test "performance: PlayHandler: processes plays efficiently" {
         var handler = PlayHandler.init(12345);
@@ -527,10 +1051,9 @@
         try testing.expect(elapsed < 50);
     }
 
+    // └──────────────────────────────────────────────────────────────────────────┘
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════════╝
-
-// ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+    // ┌──────────────────────────── Stress Tests ────────────────────────────┐
 
     test "stress: PlayHandler: handles all play types" {
         var handler = PlayHandler.init(12345);

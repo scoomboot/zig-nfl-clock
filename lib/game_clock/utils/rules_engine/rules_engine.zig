@@ -1,0 +1,499 @@
+// rules_engine.zig — NFL game clock rules engine  
+//
+// repo   : https://github.com/zig-nfl-clock
+// docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/rules_engine/rules_engine.zig
+// author : https://github.com/maysara-elshewehy
+//
+// Vibe coded by Scoom.
+
+const std = @import("std");
+
+// ╔══════════════════════════════════════ PACK ══════════════════════════════════════╗
+
+    /// NFL timing constants (in seconds)
+    pub const TimingConstants = struct {
+        /// Length of a quarter in seconds
+        pub const QUARTER_LENGTH: u32 = 900; // 15 minutes
+        /// Play clock duration in seconds
+        pub const PLAY_CLOCK_DURATION: u32 = 40;
+        /// Play clock after timeout or injury
+        pub const PLAY_CLOCK_AFTER_TIMEOUT: u32 = 25;
+        /// Two-minute warning time
+        pub const TWO_MINUTE_WARNING: u32 = 120;
+        /// Overtime quarter length (regular season)
+        pub const OVERTIME_LENGTH: u32 = 600; // 10 minutes
+        /// Timeout duration in seconds
+        pub const TIMEOUT_DURATION: u32 = 60;
+        /// Injury timeout duration
+        pub const INJURY_TIMEOUT_DURATION: u32 = 120;
+    };
+
+// ╚══════════════════════════════════════════════════════════════════════════════════════════╝
+
+// ╔══════════════════════════════════════ TYPES ══════════════════════════════════════╗
+
+    /// Play outcome types that affect clock
+    pub const PlayOutcome = enum {
+        incomplete_pass,
+        complete_pass_inbounds,
+        complete_pass_out_of_bounds,
+        run_inbounds,
+        run_out_of_bounds,
+        touchdown,
+        field_goal_attempt,
+        punt,
+        kickoff,
+        penalty,
+        timeout,
+        injury,
+        two_minute_warning,
+        quarter_end,
+        sack,
+        fumble_inbounds,
+        fumble_out_of_bounds,
+        interception,
+        safety,
+    };
+
+    /// Clock stop reasons
+    pub const ClockStopReason = enum {
+        incomplete_pass,
+        out_of_bounds,
+        penalty,
+        timeout,
+        injury,
+        score,
+        two_minute_warning,
+        quarter_end,
+        first_down,  // Only stops clock in final 2 minutes
+        change_of_possession,
+        official_timeout,
+    };
+
+    /// Game situation context
+    pub const GameSituation = struct {
+        quarter: u8,
+        time_remaining: u32,
+        down: u8,
+        distance: u8,
+        is_overtime: bool,
+        home_timeouts: u8,
+        away_timeouts: u8,
+        possession_team: enum { home, away },
+        is_two_minute_drill: bool,
+    };
+
+    /// Clock management decision
+    pub const ClockDecision = struct {
+        should_stop: bool,
+        stop_reason: ?ClockStopReason,
+        restart_on_ready: bool,
+        restart_on_snap: bool,
+        play_clock_reset: bool,
+        play_clock_duration: u32,
+    };
+
+    /// Penalty information
+    pub const PenaltyInfo = struct {
+        yards: i8,
+        clock_impact: enum {
+            no_impact,
+            stop_clock,
+            reset_play_clock,
+            ten_second_runoff,
+        },
+        against_team: enum { offense, defense },
+    };
+
+// ╚══════════════════════════════════════════════════════════════════════════════════════════╝
+
+// ╔══════════════════════════════════════ INIT ══════════════════════════════════════╗
+
+    /// NFL Rules Engine
+    pub const RulesEngine = struct {
+        /// Current game situation
+        situation: GameSituation,
+        /// Track if clock is currently running
+        clock_running: bool,
+        /// Track if we're in hurry-up offense
+        hurry_up_mode: bool,
+
+        /// Initialize rules engine with default game start
+        pub fn init() RulesEngine {
+            return .{
+                .situation = .{
+                    .quarter = 1,
+                    .time_remaining = TimingConstants.QUARTER_LENGTH,
+                    .down = 1,
+                    .distance = 10,
+                    .is_overtime = false,
+                    .home_timeouts = 3,
+                    .away_timeouts = 3,
+                    .possession_team = .away,
+                    .is_two_minute_drill = false,
+                },
+                .clock_running = false,
+                .hurry_up_mode = false,
+            };
+        }
+
+        /// Initialize with custom situation
+        pub fn initWithSituation(situation: GameSituation) RulesEngine {
+            return .{
+                .situation = situation,
+                .clock_running = false,
+                .hurry_up_mode = false,
+            };
+        }
+    };
+
+// ╚══════════════════════════════════════════════════════════════════════════════════════════╝
+
+// ╔══════════════════════════════════════ CORE ══════════════════════════════════════╗
+
+    /// Process a play outcome and determine clock behavior
+    pub fn processPlay(self: *RulesEngine, outcome: PlayOutcome) ClockDecision {
+        var decision = ClockDecision{
+            .should_stop = false,
+            .stop_reason = null,
+            .restart_on_ready = false,
+            .restart_on_snap = true,
+            .play_clock_reset = true,
+            .play_clock_duration = TimingConstants.PLAY_CLOCK_DURATION,
+        };
+
+        // Check for two-minute warning first
+        if (shouldTriggerTwoMinuteWarning(self.situation)) {
+            decision.should_stop = true;
+            decision.stop_reason = .two_minute_warning;
+            decision.restart_on_ready = false;
+            self.situation.is_two_minute_drill = true;
+            return decision;
+        }
+
+        switch (outcome) {
+            .incomplete_pass => {
+                decision.should_stop = true;
+                decision.stop_reason = .incomplete_pass;
+                decision.restart_on_snap = true;
+            },
+            .complete_pass_out_of_bounds, .run_out_of_bounds => {
+                decision.should_stop = true;
+                decision.stop_reason = .out_of_bounds;
+                // Clock restarts on ready for play except in final 2 minutes of each half
+                decision.restart_on_ready = !isInsideTwoMinutes(self.situation);
+                decision.restart_on_snap = isInsideTwoMinutes(self.situation);
+            },
+            .complete_pass_inbounds, .run_inbounds => {
+                // Clock continues to run unless first down in final 2 minutes
+                if (isFirstDown(self) and isInsideTwoMinutes(self.situation)) {
+                    decision.should_stop = true;
+                    decision.stop_reason = .first_down;
+                    decision.restart_on_ready = true;
+                }
+            },
+            .touchdown, .field_goal_attempt, .safety => {
+                decision.should_stop = true;
+                decision.stop_reason = .score;
+                decision.restart_on_ready = false;
+                decision.restart_on_snap = false; // Kickoff will restart
+            },
+            .timeout => {
+                decision.should_stop = true;
+                decision.stop_reason = .timeout;
+                decision.restart_on_snap = true;
+                decision.play_clock_duration = TimingConstants.PLAY_CLOCK_AFTER_TIMEOUT;
+            },
+            .injury => {
+                decision.should_stop = true;
+                decision.stop_reason = .injury;
+                decision.restart_on_ready = true;
+                decision.play_clock_duration = TimingConstants.PLAY_CLOCK_AFTER_TIMEOUT;
+            },
+            .penalty => {
+                decision.should_stop = true;
+                decision.stop_reason = .penalty;
+                // Clock restart depends on penalty type and game situation
+                decision.restart_on_ready = true;
+            },
+            .punt, .kickoff => {
+                decision.should_stop = true;
+                decision.stop_reason = .change_of_possession;
+                decision.restart_on_snap = true;
+            },
+            .quarter_end => {
+                decision.should_stop = true;
+                decision.stop_reason = .quarter_end;
+                decision.restart_on_ready = false;
+                decision.restart_on_snap = false;
+            },
+            .sack => {
+                // Sack is treated like a running play - clock continues
+                if (isInsideTwoMinutes(self.situation)) {
+                    // May stop for first down
+                    if (isFirstDown(self)) {
+                        decision.should_stop = true;
+                        decision.stop_reason = .first_down;
+                        decision.restart_on_ready = true;
+                    }
+                }
+            },
+            .fumble_out_of_bounds => {
+                decision.should_stop = true;
+                decision.stop_reason = .out_of_bounds;
+                decision.restart_on_ready = !isInsideTwoMinutes(self.situation);
+                decision.restart_on_snap = isInsideTwoMinutes(self.situation);
+            },
+            .fumble_inbounds, .interception => {
+                // Change of possession
+                decision.should_stop = true;
+                decision.stop_reason = .change_of_possession;
+                decision.restart_on_snap = true;
+            },
+            else => {},
+        }
+
+        return decision;
+    }
+
+    /// Process a penalty and determine clock impact
+    pub fn processPenalty(self: *RulesEngine, penalty: PenaltyInfo) ClockDecision {
+        var decision = ClockDecision{
+            .should_stop = true,
+            .stop_reason = .penalty,
+            .restart_on_ready = true,
+            .restart_on_snap = false,
+            .play_clock_reset = true,
+            .play_clock_duration = TimingConstants.PLAY_CLOCK_AFTER_TIMEOUT,
+        };
+
+        switch (penalty.clock_impact) {
+            .stop_clock => {
+                decision.should_stop = true;
+                decision.restart_on_ready = true;
+            },
+            .ten_second_runoff => {
+                // 10-second runoff applies in final minute of either half
+                if (self.situation.time_remaining <= 60 and 
+                    (self.situation.quarter == 2 or self.situation.quarter == 4)) {
+                    // Subtract 10 seconds from game clock
+                    if (self.situation.time_remaining > 10) {
+                        self.situation.time_remaining -= 10;
+                    } else {
+                        self.situation.time_remaining = 0;
+                        decision.stop_reason = .quarter_end;
+                    }
+                }
+            },
+            .reset_play_clock => {
+                decision.play_clock_reset = true;
+            },
+            .no_impact => {
+                decision.should_stop = false;
+                decision.stop_reason = null;
+            },
+        }
+
+        return decision;
+    }
+
+    /// Check if timeout is available for team
+    pub fn canCallTimeout(self: *RulesEngine, team: enum { home, away }) bool {
+        return switch (team) {
+            .home => self.situation.home_timeouts > 0,
+            .away => self.situation.away_timeouts > 0,
+        };
+    }
+
+    /// Use a timeout
+    pub fn useTimeout(self: *RulesEngine, team: enum { home, away }) !void {
+        if (!canCallTimeout(self, team)) {
+            return error.NoTimeoutsRemaining;
+        }
+
+        switch (team) {
+            .home => self.situation.home_timeouts -= 1,
+            .away => self.situation.away_timeouts -= 1,
+        }
+    }
+
+    /// Check if two-minute warning should trigger
+    pub fn shouldTriggerTwoMinuteWarning(situation: GameSituation) bool {
+        // Two-minute warning occurs in 2nd and 4th quarters
+        if (situation.quarter != 2 and situation.quarter != 4) {
+            return false;
+        }
+
+        // Check if we just crossed the 2-minute threshold
+        return situation.time_remaining == TimingConstants.TWO_MINUTE_WARNING;
+    }
+
+    /// Check if we're inside two minutes of a half
+    pub fn isInsideTwoMinutes(situation: GameSituation) bool {
+        return situation.is_two_minute_drill or 
+               (situation.time_remaining <= TimingConstants.TWO_MINUTE_WARNING and
+                (situation.quarter == 2 or situation.quarter == 4));
+    }
+
+    /// Check if it's a first down
+    fn isFirstDown(self: *RulesEngine) bool {
+        return self.situation.down == 1;
+    }
+
+    /// Advance to next quarter
+    pub fn advanceQuarter(self: *RulesEngine) void {
+        self.situation.quarter += 1;
+        self.situation.time_remaining = TimingConstants.QUARTER_LENGTH;
+        
+        // Reset timeouts at halftime
+        if (self.situation.quarter == 3) {
+            self.situation.home_timeouts = 3;
+            self.situation.away_timeouts = 3;
+        }
+        
+        // Check for overtime
+        if (self.situation.quarter > 4) {
+            self.situation.is_overtime = true;
+            self.situation.time_remaining = TimingConstants.OVERTIME_LENGTH;
+        }
+        
+        self.situation.is_two_minute_drill = false;
+    }
+
+    /// Get time to subtract for a typical play
+    pub fn getPlayDuration(outcome: PlayOutcome, hurry_up: bool) u32 {
+        // Average play durations in seconds
+        const base_duration: u32 = switch (outcome) {
+            .incomplete_pass => 5,
+            .complete_pass_inbounds => 7,
+            .complete_pass_out_of_bounds => 6,
+            .run_inbounds => 6,
+            .run_out_of_bounds => 5,
+            .sack => 8,
+            .punt => 6,
+            .field_goal_attempt => 5,
+            .kickoff => 6,
+            else => 0,
+        };
+
+        // Hurry-up offense reduces play duration
+        return if (hurry_up) @max(3, base_duration - 2) else base_duration;
+    }
+
+    /// Check if game is over
+    pub fn isGameOver(self: *RulesEngine) bool {
+        if (self.situation.is_overtime) {
+            // Overtime rules: sudden death in regular season
+            return self.situation.time_remaining == 0;
+        }
+        
+        return self.situation.quarter >= 4 and self.situation.time_remaining == 0;
+    }
+
+    /// Check if half is over
+    pub fn isHalfOver(self: *RulesEngine) bool {
+        return (self.situation.quarter == 2 or self.situation.quarter == 4) and 
+               self.situation.time_remaining == 0;
+    }
+
+    /// Reset for new possession
+    pub fn newPossession(self: *RulesEngine, team: enum { home, away }) void {
+        self.situation.possession_team = team;
+        self.situation.down = 1;
+        self.situation.distance = 10;
+    }
+
+    /// Update down and distance
+    pub fn updateDownAndDistance(self: *RulesEngine, yards_gained: i8) void {
+        const new_distance = @as(i16, self.situation.distance) - yards_gained;
+        
+        if (new_distance <= 0) {
+            // First down
+            self.situation.down = 1;
+            self.situation.distance = 10;
+        } else if (self.situation.down >= 4) {
+            // Turnover on downs - switch possession
+            self.situation.possession_team = if (self.situation.possession_team == .home) .away else .home;
+            self.situation.down = 1;
+            self.situation.distance = 10;
+        } else {
+            self.situation.down += 1;
+            self.situation.distance = @intCast(@max(0, new_distance));
+        }
+    }
+
+// ╚══════════════════════════════════════════════════════════════════════════════════════════╝
+
+// ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+
+    test "incomplete pass stops clock" {
+        var engine = RulesEngine.init();
+        const decision = engine.processPlay(.incomplete_pass);
+        
+        try std.testing.expect(decision.should_stop);
+        try std.testing.expect(decision.stop_reason == .incomplete_pass);
+        try std.testing.expect(decision.restart_on_snap);
+    }
+
+    test "out of bounds clock restart rules" {
+        var engine = RulesEngine.init();
+        
+        // Outside 2 minutes - clock restarts on ready
+        engine.situation.time_remaining = 300;
+        var decision = engine.processPlay(.run_out_of_bounds);
+        try std.testing.expect(decision.restart_on_ready);
+        try std.testing.expect(!decision.restart_on_snap);
+        
+        // Inside 2 minutes - clock restarts on snap
+        engine.situation.time_remaining = 90;
+        engine.situation.quarter = 2;
+        decision = engine.processPlay(.run_out_of_bounds);
+        try std.testing.expect(!decision.restart_on_ready);
+        try std.testing.expect(decision.restart_on_snap);
+    }
+
+    test "timeout management" {
+        var engine = RulesEngine.init();
+        
+        try std.testing.expect(engine.canCallTimeout(.home));
+        try engine.useTimeout(.home);
+        try std.testing.expectEqual(@as(u8, 2), engine.situation.home_timeouts);
+        
+        // Use all timeouts
+        try engine.useTimeout(.home);
+        try engine.useTimeout(.home);
+        try std.testing.expect(!engine.canCallTimeout(.home));
+        
+        // Should error on no timeouts
+        try std.testing.expectError(error.NoTimeoutsRemaining, engine.useTimeout(.home));
+    }
+
+    test "quarter advancement" {
+        var engine = RulesEngine.init();
+        
+        engine.advanceQuarter();
+        try std.testing.expectEqual(@as(u8, 2), engine.situation.quarter);
+        try std.testing.expectEqual(TimingConstants.QUARTER_LENGTH, engine.situation.time_remaining);
+        
+        // Advance to halftime
+        engine.advanceQuarter();
+        try std.testing.expectEqual(@as(u8, 3), engine.situation.quarter);
+        // Timeouts should be reset
+        try std.testing.expectEqual(@as(u8, 3), engine.situation.home_timeouts);
+    }
+
+    test "down and distance updates" {
+        var engine = RulesEngine.init();
+        
+        // Gain 5 yards on first down
+        engine.updateDownAndDistance(5);
+        try std.testing.expectEqual(@as(u8, 2), engine.situation.down);
+        try std.testing.expectEqual(@as(u8, 5), engine.situation.distance);
+        
+        // Gain 10 yards for first down
+        engine.updateDownAndDistance(10);
+        try std.testing.expectEqual(@as(u8, 1), engine.situation.down);
+        try std.testing.expectEqual(@as(u8, 10), engine.situation.distance);
+    }
+
+// ╚══════════════════════════════════════════════════════════════════════════════════════════╝

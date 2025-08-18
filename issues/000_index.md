@@ -53,8 +53,9 @@
 - 🟢 [#019](019_create_benchmarks.md): Create performance benchmarks
 
 ### 🔴 Critical Issues (Blocking Test Suite)
-- 🔴 [#032](032_additional_error_type_fixes.md): **HIGH PRIORITY** - Additional error type fixes (8 test failures) *(Created 2025-08-18)*
+- ✅ [#032](032_additional_error_type_fixes.md): ~~Additional error type fixes~~ **RESOLVED** *(2025-08-18)*
 - 🔴 [#033](033_validation_logic_fixes.md): **HIGH PRIORITY** - Fix validation logic errors (14 test failures) *(Created 2025-08-18)*
+- 🔴 [#034](034_fix_nondeterministic_play_handling.md): **HIGH PRIORITY** - Fix non-deterministic play type handling (5+ test failures) *(Created 2025-08-18)*
 
 ### 🔵 Low Priority / Future (Cleanup & Optimization)
 - 🔵 [#020](020_dependency_analysis.md): **OBSOLETE** - Dependencies already optimized via enhancement approach

@@ -159,6 +159,7 @@
         InvalidStatistics,
         StatisticsOverflow,
         PlaySequenceError,
+        InvalidPlayResult,
     };
 
     /// Error context for play handler
@@ -804,22 +805,22 @@
 
             // Validate field position
             if (result.field_position > 100) {
-                return PlayHandlerError.InvalidFieldPosition;
+                return PlayHandlerError.InvalidPlayResult;
             }
 
             // Validate yards gained (reasonable range)
             if (result.yards_gained < -50 or result.yards_gained > 100) {
-                return PlayHandlerError.InvalidYardage;
+                return PlayHandlerError.InvalidPlayResult;
             }
 
             // Validate time consumed
             if (result.time_consumed > 40) {
-                return PlayHandlerError.InvalidGameState;
+                return PlayHandlerError.InvalidPlayResult;
             }
 
             // Validate logical consistency
             if (result.is_touchdown and result.is_turnover) {
-                return PlayHandlerError.InvalidGameState;
+                return PlayHandlerError.InvalidPlayResult;
             }
 
             // Pass plays must have pass_completed set correctly
@@ -827,10 +828,16 @@
                 .pass_short, .pass_medium, .pass_deep, .screen_pass => {
                     // These are pass plays, pass_completed should be meaningful
                 },
+                .touchdown => {
+                    // Touchdown play type must have is_touchdown flag set
+                    if (!result.is_touchdown) {
+                        return PlayHandlerError.InvalidPlayResult;
+                    }
+                },
                 else => {
                     // Non-pass plays shouldn't have pass_completed true
                     if (result.pass_completed) {
-                        return PlayHandlerError.InvalidPlayType;
+                        return PlayHandlerError.InvalidPlayResult;
                     }
                 },
             }
@@ -944,6 +951,11 @@
                         .clock_running = false,
                     };
                 },
+                PlayHandlerError.InvalidStatistics => {
+                    // Reset statistics to consistent state
+                    self.home_stats = std.mem.zeroes(PlayStatistics);
+                    self.away_stats = std.mem.zeroes(PlayStatistics);
+                },
                 PlayHandlerError.StatisticsOverflow => {
                     // Reset statistics
                     self.home_stats = std.mem.zeroes(PlayStatistics);
@@ -952,6 +964,20 @@
                 PlayHandlerError.PlaySequenceError => {
                     // Reset play sequence
                     self.play_number = 0;
+                },
+                PlayHandlerError.InvalidPlayResult => {
+                    // Reset to safe game state since play result was invalid
+                    self.game_state = .{
+                        .down = 1,
+                        .distance = 10,
+                        .possession = self.possession_team,
+                        .home_score = self.game_state.home_score,
+                        .away_score = self.game_state.away_score,
+                        .quarter = self.game_state.quarter,
+                        .time_remaining = self.game_state.time_remaining,
+                        .play_clock = 40,
+                        .clock_running = false,
+                    };
                 },
             }
         }

@@ -48,6 +48,7 @@
         InvalidGameSituation,
         RuleViolation,
         ClockManagementError,
+        InvalidClockDecision,
     };
 
     /// Error context for rules engine
@@ -599,25 +600,25 @@
         ///
         /// __Errors__
         ///
-        /// - `RulesEngineError.ClockManagementError`: If decision is invalid
+        /// - `RulesEngineError.InvalidClockDecision`: If decision is invalid
         pub fn validateClockDecision(self: *const RulesEngine, decision: ClockDecision) RulesEngineError!void {
             _ = self;
 
             // Can't restart on both ready and snap
             if (decision.restart_on_ready and decision.restart_on_snap) {
-                return RulesEngineError.ClockManagementError;
+                return RulesEngineError.InvalidClockDecision;
             }
 
             // If clock is stopped, must have a reason
             if (decision.should_stop and decision.stop_reason == null) {
-                return RulesEngineError.ClockManagementError;
+                return RulesEngineError.InvalidClockDecision;
             }
 
             // Play clock duration must be valid
             if (decision.play_clock_duration != TimingConstants.PLAY_CLOCK_DURATION and
                 decision.play_clock_duration != TimingConstants.PLAY_CLOCK_AFTER_TIMEOUT and
                 decision.play_clock_duration != 0) {
-                return RulesEngineError.ClockManagementError;
+                return RulesEngineError.InvalidClockDecision;
             }
         }
 
@@ -673,6 +674,25 @@
                     // Reset clock state
                     self.clock_running = false;
                     self.hurry_up_mode = false;
+                },
+                RulesEngineError.InvalidClockDecision => {
+                    // Reset clock state for invalid decision
+                    self.clock_running = false;
+                    self.hurry_up_mode = false;
+                },
+                RulesEngineError.InvalidSituation => {
+                    // Reset to safe defaults for invalid situation
+                    self.situation = .{
+                        .quarter = 1,
+                        .time_remaining = TimingConstants.QUARTER_LENGTH,
+                        .down = 1,
+                        .distance = 10,
+                        .is_overtime = false,
+                        .home_timeouts = 3,
+                        .away_timeouts = 3,
+                        .possession_team = .home,
+                        .is_two_minute_drill = false,
+                    };
                 },
             }
         }

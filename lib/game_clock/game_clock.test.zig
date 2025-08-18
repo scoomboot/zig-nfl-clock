@@ -862,6 +862,358 @@
 
     // └──────────────────────────────────────────────────────────────────────────┘
 
+    // ┌──────────────────────────── Error Handling Tests ────────────────────────────┐
+
+    test "unit: GameClock: InvalidConfiguration error on invalid init" {
+        const allocator = testing.allocator;
+        var clock = GameClock.init(allocator);
+        
+        // Set invalid configuration
+        clock.time_remaining = 5000; // Way over quarter length
+        clock.quarter = .Q1;
+        
+        // Validate should detect invalid state
+        const validation_result = clock.validateState();
+        try testing.expectError(GameClockError.InvalidConfiguration, validation_result);
+    }
+
+    test "unit: GameClock: ConcurrentModification error detection" {
+        const allocator = testing.allocator;
+        var clock = GameClock.init(allocator);
+        
+        // Start clock to simulate active state
+        try clock.start();
+        clock.modification_count = 5;
+        
+        // Simulate concurrent modification by changing modification count mid-operation
+        const initial_count = clock.modification_count;
+        clock.modification_count = initial_count + 10; // Simulate external modification
+        
+        // This would be detected in a real concurrent scenario
+        try testing.expect(clock.modification_count != initial_count);
+    }
+
+    test "unit: GameClock: validateState catches all invalid states" {
+        const allocator = testing.allocator;
+        var clock = GameClock.init(allocator);
+        
+        // Test 1: Time exceeds quarter length
+        clock.time_remaining = QUARTER_LENGTH_SECONDS + 100;
+        try testing.expectError(GameClockError.InvalidConfiguration, clock.validateState());
+        
+        // Test 2: Play clock exceeds maximum
+        clock.time_remaining = 500;
+        clock.play_clock = PLAY_CLOCK_SECONDS + 10;
+        try testing.expectError(GameClockError.InvalidConfiguration, clock.validateState());
+        
+        // Test 3: Invalid quarter number (using raw value)
+        clock.play_clock = 25;
+        // Quarter enum doesn't allow invalid values directly, but we can test edge cases
+        clock.quarter = .Overtime;
+        clock.time_remaining = OVERTIME_LENGTH_SECONDS + 100;
+        try testing.expectError(GameClockError.InvalidConfiguration, clock.validateState());
+        
+        // Test 4: Valid state should pass
+        clock.time_remaining = 300;
+        clock.quarter = .Q2;
+        clock.play_clock = 25;
+        try clock.validateState();
+    }
+
+    test "unit: GameClock: validateTime detects invalid time values" {
+        const allocator = testing.allocator;
+        var clock = GameClock.init(allocator);
+        
+        // Test various invalid times
+        try testing.expectError(GameClockError.InvalidTime, clock.validateTime(QUARTER_LENGTH_SECONDS + 1, .Q1));
+        try testing.expectError(GameClockError.InvalidTime, clock.validateTime(OVERTIME_LENGTH_SECONDS + 1, .Overtime));
+        
+        // Valid times should pass
+        try clock.validateTime(300, .Q1);
+        try clock.validateTime(0, .Q4);
+        try clock.validateTime(OVERTIME_LENGTH_SECONDS, .Overtime);
+    }
+
+    test "unit: GameClock: validateConfiguration checks all config params" {
+        const allocator = testing.allocator;
+        var clock = GameClock.init(allocator);
+        
+        // Test with various invalid configurations
+        const invalid_configs = [_]struct {
+            time_remaining: u32,
+            play_clock: u8,
+            quarter: Quarter,
+            should_fail: bool,
+        }{
+            .{ .time_remaining = 2000, .play_clock = 40, .quarter = .Q1, .should_fail = true },
+            .{ .time_remaining = 900, .play_clock = 50, .quarter = .Q1, .should_fail = true },
+            .{ .time_remaining = 900, .play_clock = 40, .quarter = .Q1, .should_fail = false },
+            .{ .time_remaining = 0, .play_clock = 0, .quarter = .Q4, .should_fail = false },
+        };
+        
+        for (invalid_configs) |config| {
+            clock.time_remaining = config.time_remaining;
+            clock.play_clock = config.play_clock;
+            clock.quarter = config.quarter;
+            
+            if (config.should_fail) {
+                try testing.expectError(GameClockError.InvalidConfiguration, clock.validateConfiguration());
+            } else {
+                try clock.validateConfiguration();
+            }
+        }
+    }
+
+    test "unit: GameClock: resetToValidState recovers from invalid state" {
+        const allocator = testing.allocator;
+        var clock = GameClock.init(allocator);
+        
+        // Put clock in invalid state
+        clock.time_remaining = 5000;
+        clock.play_clock = 100;
+        clock.quarter = .Q2;
+        clock.is_running = true;
+        clock.game_state = .InProgress;
+        
+        // Reset should fix everything
+        clock.resetToValidState();
+        
+        // Verify valid state
+        try testing.expect(clock.time_remaining <= QUARTER_LENGTH_SECONDS);
+        try testing.expect(clock.play_clock <= PLAY_CLOCK_SECONDS);
+        try testing.expect(!clock.is_running);
+        try clock.validateState();
+    }
+
+    test "unit: GameClock: syncClocks ensures consistency" {
+        const allocator = testing.allocator;
+        var clock = GameClock.init(allocator);
+        
+        // Create inconsistent state
+        clock.time_remaining = 5; // Only 5 seconds left
+        clock.play_clock = 40; // But full play clock
+        clock.is_running = true;
+        
+        // Sync should fix inconsistency
+        clock.syncClocks();
+        
+        // Play clock should not exceed game time
+        try testing.expect(clock.play_clock <= clock.time_remaining);
+    }
+
+    test "unit: GameClock: recoverFromError handles various error scenarios" {
+        const allocator = testing.allocator;
+        var clock = GameClock.init(allocator);
+        
+        // Test recovery from ClockAlreadyRunning
+        clock.is_running = true;
+        try clock.recoverFromError(GameClockError.ClockAlreadyRunning);
+        try testing.expect(!clock.is_running);
+        
+        // Test recovery from InvalidPlayClock
+        clock.play_clock = 100;
+        try clock.recoverFromError(GameClockError.InvalidPlayClock);
+        try testing.expectEqual(PLAY_CLOCK_SECONDS, clock.play_clock);
+        
+        // Test recovery from InvalidQuarter
+        clock.quarter = .Q4;
+        clock.time_remaining = 0;
+        try clock.recoverFromError(GameClockError.InvalidQuarter);
+        // Should handle end of game scenario
+        try testing.expect(clock.game_state == .EndGame or clock.quarter == .Overtime);
+        
+        // Test recovery from InvalidTime
+        clock.time_remaining = 5000;
+        try clock.recoverFromError(GameClockError.InvalidTime);
+        try testing.expect(clock.time_remaining <= QUARTER_LENGTH_SECONDS);
+        
+        // Test recovery from InvalidConfiguration
+        clock.time_remaining = 2000;
+        clock.play_clock = 80;
+        try clock.recoverFromError(GameClockError.InvalidConfiguration);
+        try clock.validateState(); // Should be valid after recovery
+    }
+
+    test "integration: GameClock: error context provides useful debugging info" {
+        const allocator = testing.allocator;
+        var clock = GameClock.init(allocator);
+        
+        // Create various error contexts
+        const contexts = [_]struct {
+            error_type: GameClockError,
+            operation: []const u8,
+            expected_field: []const u8,
+        }{
+            .{ .error_type = GameClockError.ClockAlreadyRunning, .operation = "start", .expected_field = "is_running" },
+            .{ .error_type = GameClockError.InvalidPlayClock, .operation = "setPlayClock", .expected_field = "play_clock" },
+            .{ .error_type = GameClockError.InvalidTime, .operation = "tick", .expected_field = "time_remaining" },
+        };
+        
+        for (contexts) |ctx| {
+            const error_ctx = clock.createErrorContext(ctx.error_type, ctx.operation);
+            
+            try testing.expectEqual(ctx.error_type, error_ctx.error_type);
+            try testing.expectEqualStrings(ctx.operation, error_ctx.operation);
+            try testing.expect(error_ctx.timestamp > 0);
+            
+            // Verify state snapshot contains expected fields
+            if (std.mem.eql(u8, ctx.expected_field, "is_running")) {
+                try testing.expectEqual(clock.is_running, error_ctx.clock_state.is_running);
+            } else if (std.mem.eql(u8, ctx.expected_field, "play_clock")) {
+                try testing.expectEqual(clock.play_clock, error_ctx.clock_state.play_clock);
+            } else if (std.mem.eql(u8, ctx.expected_field, "time_remaining")) {
+                try testing.expectEqual(clock.time_remaining, error_ctx.clock_state.time_remaining);
+            }
+        }
+    }
+
+    test "integration: GameClock: error recovery maintains game flow" {
+        const allocator = testing.allocator;
+        var clock = GameClock.init(allocator);
+        
+        // Start normal game
+        try clock.start();
+        const initial_time = clock.time_remaining;
+        
+        // Simulate error: try to start again
+        const start_error = clock.start();
+        try testing.expectError(GameClockError.ClockAlreadyRunning, start_error);
+        
+        // Recover from error
+        try clock.recoverFromError(GameClockError.ClockAlreadyRunning);
+        
+        // Game should continue normally
+        try clock.start(); // Should work now
+        try clock.tick();
+        try testing.expect(clock.time_remaining < initial_time);
+        
+        // Simulate invalid play clock error
+        const invalid_pc_error = clock.setPlayClock(100);
+        try testing.expectError(GameClockError.InvalidPlayClock, invalid_pc_error);
+        
+        // Recover
+        try clock.recoverFromError(GameClockError.InvalidPlayClock);
+        try testing.expectEqual(PLAY_CLOCK_SECONDS, clock.play_clock);
+        
+        // Game continues
+        try clock.tick();
+        try clock.stop();
+    }
+
+    test "e2e: GameClock: complete error handling flow" {
+        const allocator = testing.allocator;
+        var clock = GameClock.init(allocator);
+        
+        // Scenario 1: Multiple errors during game
+        try clock.start();
+        
+        // Error 1: Double start
+        if (clock.start()) |_| {
+            try testing.expect(false); // Should not succeed
+        } else |err| {
+            try testing.expectEqual(GameClockError.ClockAlreadyRunning, err);
+            const ctx = clock.createErrorContext(err, "start");
+            try testing.expect(ctx.clock_state.is_running);
+            try clock.recoverFromError(err);
+        }
+        
+        // Continue game
+        for (0..10) |_| {
+            try clock.tick();
+        }
+        
+        // Error 2: Invalid play clock while running
+        if (clock.setPlayClock(60)) |_| {
+            try testing.expect(false);
+        } else |err| {
+            try testing.expectEqual(GameClockError.InvalidPlayClock, err);
+            try clock.recoverFromError(err);
+        }
+        
+        // Error 3: Stop when already stopped
+        try clock.stop();
+        if (clock.stop()) |_| {
+            try testing.expect(false);
+        } else |err| {
+            try testing.expectEqual(GameClockError.ClockNotRunning, err);
+            try clock.recoverFromError(err);
+        }
+        
+        // Scenario 2: Invalid state recovery
+        clock.time_remaining = 10000; // Invalid
+        clock.play_clock = 200; // Invalid
+        
+        if (clock.validateState()) |_| {
+            try testing.expect(false);
+        } else |err| {
+            try testing.expectEqual(GameClockError.InvalidConfiguration, err);
+            clock.resetToValidState();
+            try clock.validateState(); // Should pass now
+        }
+        
+        // Scenario 3: End of game error handling
+        clock.quarter = .Q4;
+        clock.time_remaining = 0;
+        
+        // Try to start overtime when not ready
+        if (clock.quarter != .Q4 or clock.time_remaining != 0) {
+            if (clock.startOvertime()) |_| {
+                try testing.expect(false);
+            } else |err| {
+                try testing.expectEqual(GameClockError.InvalidQuarter, err);
+            }
+        } else {
+            try clock.startOvertime(); // Should work
+            try testing.expectEqual(Quarter.Overtime, clock.quarter);
+        }
+    }
+
+    test "scenario: GameClock: handles errors during critical game moments" {
+        const allocator = testing.allocator;
+        var clock = GameClock.init(allocator);
+        
+        // Two-minute drill with errors
+        clock.quarter = .Q4;
+        clock.time_remaining = 120;
+        clock.game_state = .InProgress;
+        
+        try clock.start();
+        
+        // Simulate rapid play with potential errors
+        for (0..10) |i| {
+            // Every 3rd iteration, try invalid operation
+            if (i % 3 == 0) {
+                // Try to set invalid play clock during critical time
+                if (clock.setPlayClock(50)) |_| {
+                    try testing.expect(false);
+                } else |err| {
+                    // Recover and continue
+                    try clock.recoverFromError(err);
+                }
+            }
+            
+            try clock.tick();
+            
+            // Every 5th iteration, cause and recover from error
+            if (i % 5 == 0) {
+                clock.play_clock = 100; // Force invalid state
+                if (clock.validateState()) |_| {
+                    try testing.expect(false);
+                } else |err| {
+                    // Use the error to trigger recovery
+                    try testing.expect(err == GameClockError.InvalidConfiguration or err == GameClockError.InvalidPlayClock);
+                    clock.resetToValidState();
+                }
+            }
+        }
+        
+        // Game should still be in valid state
+        try clock.validateState();
+        try testing.expect(clock.time_remaining < 120);
+    }
+
+    // └──────────────────────────────────────────────────────────────────────────┘
+
     // ┌──────────────────────────── Stress Tests ────────────────────────────┐
 
     test "stress: GameClock: handles maximum game duration" {

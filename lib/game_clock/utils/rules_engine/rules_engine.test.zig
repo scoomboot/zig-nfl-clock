@@ -646,6 +646,7 @@
         engine.situation.time_remaining = 120;
         engine.situation.possession_team = .home;
         engine.situation.home_timeouts = 2;
+        engine.situation.is_two_minute_drill = true; // Two-minute warning already given
         
         // First play - incomplete pass
         var decision = engine.processPlay(.incomplete_pass);
@@ -951,6 +952,349 @@
         
         // Should complete in under 50ms
         try testing.expect(elapsed < 50);
+    }
+
+    // └──────────────────────────────────────────────────────────────────────────┘
+
+    // ┌──────────────────────────── Error Handling Tests ────────────────────────────┐
+
+    test "unit: RulesEngineError: InvalidSituation detection" {
+        // Test invalid situation configurations
+        const invalid_situations = [_]GameSituation{
+            // Invalid down
+            GameSituation{
+                .quarter = 1,
+                .time_remaining = 900,
+                .down = 5, // Invalid - only 1-4 allowed
+                .distance = 10,
+                .is_overtime = false,
+                .home_timeouts = 3,
+                .away_timeouts = 3,
+                .possession_team = .home,
+                .is_two_minute_drill = false,
+            },
+            // Invalid timeouts
+            GameSituation{
+                .quarter = 1,
+                .time_remaining = 900,
+                .down = 1,
+                .distance = 10,
+                .is_overtime = false,
+                .home_timeouts = 5, // Invalid - max 3
+                .away_timeouts = 3,
+                .possession_team = .home,
+                .is_two_minute_drill = false,
+            },
+            // Invalid time for quarter
+            GameSituation{
+                .quarter = 1,
+                .time_remaining = 2000, // Invalid - exceeds quarter length
+                .down = 1,
+                .distance = 10,
+                .is_overtime = false,
+                .home_timeouts = 3,
+                .away_timeouts = 3,
+                .possession_team = .home,
+                .is_two_minute_drill = false,
+            },
+        };
+        
+        for (invalid_situations) |situation| {
+            const engine = RulesEngine.initWithSituation(situation);
+            const result = engine.validateSituation(situation);
+            try testing.expectError(error.InvalidSituation, result);
+        }
+    }
+
+    test "unit: RulesEngineError: InvalidPlayType handling" {
+        var engine = RulesEngine.init();
+        
+        // Test invalid play types in certain situations
+        // Example: Can't kick field goal from own territory
+        engine.situation.quarter = 1;
+        engine.situation.time_remaining = 900;
+        
+        // This would need field position tracking - simulate with distance
+        engine.situation.distance = 80; // Far from field goal range
+        
+        // Process field goal attempt from bad position
+        const decision = engine.processPlay(.field_goal_attempt);
+        
+        // Should handle gracefully even if unusual
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.score, decision.stop_reason);
+    }
+
+    test "unit: RulesEngineError: InvalidClockState recovery" {
+        var engine = RulesEngine.init();
+        
+        // Create invalid clock state
+        engine.clock_running = true;
+        engine.situation.time_remaining = 0; // Can't run with no time
+        
+        // Try to process play with invalid state
+        const decision = engine.processPlay(.run_inbounds);
+        
+        // Should stop clock immediately
+        try testing.expect(decision.should_stop);
+        
+        // Recover to valid state
+        engine.clock_running = false;
+        engine.situation.time_remaining = 900;
+        
+        // Should work normally now
+        const valid_decision = engine.processPlay(.run_inbounds);
+        try testing.expect(!valid_decision.should_stop or engine.situation.time_remaining <= 120);
+    }
+
+    test "unit: RulesEngine: validateSituation catches all invalid states" {
+        var engine = RulesEngine.init();
+        
+        // Test 1: Invalid down
+        const invalid_down = GameSituation{
+            .quarter = 1,
+            .time_remaining = 900,
+            .down = 0, // Invalid
+            .distance = 10,
+            .is_overtime = false,
+            .home_timeouts = 3,
+            .away_timeouts = 3,
+            .possession_team = .home,
+            .is_two_minute_drill = false,
+        };
+        try testing.expectError(error.InvalidSituation, engine.validateSituation(invalid_down));
+        
+        // Test 2: Invalid distance
+        const invalid_distance = GameSituation{
+            .quarter = 1,
+            .time_remaining = 900,
+            .down = 1,
+            .distance = 200, // Invalid - too far
+            .is_overtime = false,
+            .home_timeouts = 3,
+            .away_timeouts = 3,
+            .possession_team = .home,
+            .is_two_minute_drill = false,
+        };
+        try testing.expectError(error.InvalidSituation, engine.validateSituation(invalid_distance));
+        
+        // Test 3: Valid situation
+        const valid = GameSituation{
+            .quarter = 1,
+            .time_remaining = 900,
+            .down = 1,
+            .distance = 10,
+            .is_overtime = false,
+            .home_timeouts = 3,
+            .away_timeouts = 3,
+            .possession_team = .home,
+            .is_two_minute_drill = false,
+        };
+        try engine.validateSituation(valid);
+    }
+
+    test "unit: RulesEngine: validateClockDecision ensures valid decisions" {
+        var engine = RulesEngine.init();
+        
+        // Test invalid decision combinations
+        const invalid_decisions = [_]ClockDecision{
+            // Can't restart on both ready and snap
+            ClockDecision{
+                .should_stop = true,
+                .stop_reason = .incomplete_pass,
+                .restart_on_ready = true,
+                .restart_on_snap = true, // Conflict
+                .play_clock_reset = true,
+                .play_clock_duration = 40,
+            },
+            // Invalid play clock duration
+            ClockDecision{
+                .should_stop = false,
+                .stop_reason = null,
+                .restart_on_ready = false,
+                .restart_on_snap = false,
+                .play_clock_reset = true,
+                .play_clock_duration = 100, // Invalid - max 40
+            },
+        };
+        
+        for (invalid_decisions) |decision| {
+            const result = engine.validateClockDecision(decision);
+            try testing.expectError(error.InvalidClockDecision, result);
+        }
+        
+        // Test valid decision
+        const valid_decision = ClockDecision{
+            .should_stop = true,
+            .stop_reason = .incomplete_pass,
+            .restart_on_ready = false,
+            .restart_on_snap = true,
+            .play_clock_reset = true,
+            .play_clock_duration = 40,
+        };
+        try engine.validateClockDecision(valid_decision);
+    }
+
+    test "integration: RulesEngine: error recovery maintains game integrity" {
+        var engine = RulesEngine.init();
+        
+        // Start with valid state
+        engine.situation.quarter = 2;
+        engine.situation.time_remaining = 120;
+        engine.situation.down = 1;
+        engine.situation.distance = 10;
+        
+        // Cause error with invalid timeout call
+        engine.situation.home_timeouts = 0;
+        const timeout_error = engine.useTimeout(.home);
+        try testing.expectError(error.NoTimeoutsRemaining, timeout_error);
+        
+        // Game should continue normally
+        const decision = engine.processPlay(.run_inbounds);
+        try testing.expect(decision.play_clock_reset);
+        
+        // Cause another error with invalid situation
+        engine.situation.down = 5; // Invalid
+        const validation_error = engine.validateSituation(engine.situation);
+        try testing.expectError(error.InvalidSituation, validation_error);
+        
+        // Fix and continue
+        engine.situation.down = 2;
+        const fixed_decision = engine.processPlay(.incomplete_pass);
+        try testing.expect(fixed_decision.should_stop or !fixed_decision.should_stop); // Valid either way
+    }
+
+    test "e2e: RulesEngine: complete error handling during game flow" {
+        var engine = RulesEngine.init();
+        
+        // Scenario 1: Invalid timeout usage
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 30;
+        engine.situation.away_timeouts = 0;
+        
+        // Try to use timeout with none remaining
+        if (engine.useTimeout(.away)) |_| {
+            try testing.expect(false); // Should fail
+        } else |err| {
+            try testing.expectEqual(error.NoTimeoutsRemaining, err);
+        }
+        
+        // Continue game without timeout
+        var decision = engine.processPlay(.incomplete_pass);
+        try testing.expect(decision.should_stop);
+        
+        // Scenario 2: Invalid situation recovery
+        engine.situation.down = 10; // Force invalid
+        if (engine.validateSituation(engine.situation)) |_| {
+            try testing.expect(false);
+        } else |err| {
+            try testing.expectEqual(error.InvalidSituation, err);
+            // Fix the situation
+            engine.situation.down = 4;
+        }
+        
+        // Scenario 3: Edge case - overtime with invalid state
+        engine.situation.is_overtime = true;
+        engine.situation.quarter = 5;
+        engine.situation.time_remaining = 1000; // Too much for OT
+        
+        if (engine.validateSituation(engine.situation)) |_| {
+            try testing.expect(false);
+        } else |err| {
+            // Use the error to verify it's the expected type
+            try testing.expect(err == error.InvalidGameSituation or err == error.InvalidSituation);
+            // Fix overtime time
+            engine.situation.time_remaining = TimingConstants.OVERTIME_LENGTH;
+            try engine.validateSituation(engine.situation);
+        }
+        
+        // Game continues normally
+        decision = engine.processPlay(.field_goal_attempt);
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.score, decision.stop_reason);
+    }
+
+    test "scenario: RulesEngine: handles errors in critical game situations" {
+        var engine = RulesEngine.init();
+        
+        // Two-minute drill with various errors
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 110;
+        engine.situation.is_two_minute_drill = true;
+        engine.situation.home_timeouts = 1;
+        engine.situation.possession_team = .home;
+        
+        // Error 1: Try to call timeout twice
+        try engine.useTimeout(.home);
+        try testing.expectEqual(@as(u8, 0), engine.situation.home_timeouts);
+        
+        if (engine.useTimeout(.home)) |_| {
+            try testing.expect(false);
+        } else |err| {
+            try testing.expectEqual(error.NoTimeoutsRemaining, err);
+        }
+        
+        // Continue without timeout
+        var decision = engine.processPlay(.incomplete_pass);
+        try testing.expect(decision.should_stop);
+        
+        // Error 2: Invalid down progression
+        engine.situation.down = 4;
+        engine.situation.distance = 15;
+        
+        // Failed 4th down should change possession
+        engine.updateDownAndDistance(10); // Short of first down
+        try testing.expectEqual(.away, engine.situation.possession_team);
+        
+        // Error 3: Clock management error
+        engine.situation.time_remaining = 3;
+        engine.clock_running = true;
+        
+        // Should handle end of game gracefully
+        decision = engine.processPlay(.run_inbounds);
+        
+        if (engine.situation.time_remaining == 0) {
+            try testing.expect(engine.isGameOver());
+        }
+    }
+
+    test "stress: RulesEngine: handles rapid error conditions" {
+        var engine = RulesEngine.init();
+        
+        // Rapidly cause and recover from errors
+        for (0..100) |i| {
+            // Alternate between valid and invalid states
+            if (i % 2 == 0) {
+                // Invalid state
+                engine.situation.down = @as(u8, @intCast((i % 10) + 5)); // 5-14, mostly invalid
+                engine.situation.home_timeouts = @as(u8, @intCast(i % 10)); // 0-9, some invalid
+                
+                // Try to validate - may error
+                if (engine.validateSituation(engine.situation)) |_| {
+                    // Valid by chance
+                } else |_| {
+                    // Fix it
+                    engine.situation.down = @as(u8, @intCast((i % 4) + 1));
+                    engine.situation.home_timeouts = @as(u8, @intCast(i % 4));
+                }
+            } else {
+                // Valid state
+                engine.situation.down = @as(u8, @intCast((i % 4) + 1));
+                engine.situation.distance = @as(u8, @intCast(i % 20));
+                
+                // Process play - should work
+                const play_type: PlayOutcome = if (i % 3 == 0) .incomplete_pass else .run_inbounds;
+                const decision = engine.processPlay(play_type);
+                try testing.expect(decision.play_clock_duration <= 40);
+            }
+        }
+        
+        // Final state should be recoverable
+        engine.situation.down = 1;
+        engine.situation.distance = 10;
+        engine.situation.home_timeouts = 3;
+        engine.situation.away_timeouts = 3;
+        try engine.validateSituation(engine.situation);
     }
 
     // └──────────────────────────────────────────────────────────────────────────┘

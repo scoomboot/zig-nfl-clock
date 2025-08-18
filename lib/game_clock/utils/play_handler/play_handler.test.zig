@@ -853,7 +853,7 @@
         // Assume minimal gain or loss
         if (result.yards_gained <= 0) {
             handler.game_state.down = 2;
-            handler.game_state.distance = @max(0, 2 - result.yards_gained);
+            handler.game_state.distance = @intCast(@max(0, 2 - result.yards_gained));
         }
         
         // Second down - pass incomplete in end zone
@@ -876,7 +876,8 @@
         if (!result.is_touchdown) {
             handler.game_state.down = 4;
             if (result.yards_gained > 0) {
-                handler.game_state.distance = @max(0, handler.game_state.distance - @as(u8, @intCast(result.yards_gained)));
+                const new_distance = @as(i16, handler.game_state.distance) - result.yards_gained;
+                handler.game_state.distance = @intCast(@max(0, new_distance));
             }
         }
         
@@ -925,7 +926,7 @@
         
         var plays_run: u32 = 0;
         var total_time: u32 = 0;
-        var field_position: u8 = 35; // Start at own 35
+        const field_position: u8 = 35; // Start at own 35
         
         // Hurry-up no-huddle offense
         const hurry_up_plays = [_]PlayType{
@@ -1049,6 +1050,389 @@
         
         // Should complete in under 50ms
         try testing.expect(elapsed < 50);
+    }
+
+    // └──────────────────────────────────────────────────────────────────────────┘
+
+    // ┌──────────────────────────── Error Handling Tests ────────────────────────────┐
+
+    test "unit: PlayHandlerError: InvalidGameState detection" {
+        var handler = PlayHandler.init(12345);
+        
+        // Test invalid game states
+        const invalid_states = [_]GameStateUpdate{
+            // Invalid down
+            GameStateUpdate{
+                .down = 0, // Invalid - must be 1-4
+                .distance = 10,
+                .possession = .home,
+                .home_score = 0,
+                .away_score = 0,
+                .quarter = 1,
+                .time_remaining = 900,
+                .play_clock = 40,
+                .clock_running = false,
+            },
+            // Invalid distance
+            GameStateUpdate{
+                .down = 1,
+                .distance = 255, // Invalid - too far
+                .possession = .home,
+                .home_score = 0,
+                .away_score = 0,
+                .quarter = 1,
+                .time_remaining = 900,
+                .play_clock = 40,
+                .clock_running = false,
+            },
+            // Invalid play clock
+            GameStateUpdate{
+                .down = 1,
+                .distance = 10,
+                .possession = .home,
+                .home_score = 0,
+                .away_score = 0,
+                .quarter = 1,
+                .time_remaining = 900,
+                .play_clock = 100, // Invalid - max 40
+                .clock_running = false,
+            },
+        };
+        
+        for (invalid_states) |state| {
+            const result = handler.validateGameState(state);
+            try testing.expectError(error.InvalidGameState, result);
+        }
+    }
+
+    test "unit: PlayHandlerError: InvalidPlayResult validation" {
+        var handler = PlayHandler.init(12345);
+        
+        // Test invalid play results
+        const invalid_results = [_]PlayResult{
+            // Invalid yards gained
+            PlayResult{
+                .play_type = .run_up_middle,
+                .yards_gained = 200, // Invalid - too many yards
+                .out_of_bounds = false,
+                .pass_completed = false,
+                .is_touchdown = false,
+                .is_first_down = false,
+                .is_turnover = false,
+                .time_consumed = 6,
+                .field_position = 50,
+            },
+            // Invalid field position
+            PlayResult{
+                .play_type = .pass_short,
+                .yards_gained = 10,
+                .out_of_bounds = false,
+                .pass_completed = true,
+                .is_touchdown = false,
+                .is_first_down = true,
+                .is_turnover = false,
+                .time_consumed = 7,
+                .field_position = 150, // Invalid - max 100
+            },
+            // Contradictory flags
+            PlayResult{
+                .play_type = .touchdown,
+                .yards_gained = 50,
+                .out_of_bounds = false,
+                .pass_completed = false,
+                .is_touchdown = false, // Contradiction - touchdown play but not touchdown
+                .is_first_down = false,
+                .is_turnover = false,
+                .time_consumed = 8,
+                .field_position = 100,
+            },
+        };
+        
+        for (invalid_results) |result| {
+            const validation = handler.validatePlayResult(@constCast(&result));
+            try testing.expectError(error.InvalidPlayResult, validation);
+        }
+    }
+
+    test "unit: PlayHandlerError: InvalidStatistics detection" {
+        var handler = PlayHandler.init(12345);
+        
+        // Create invalid statistics
+        handler.home_stats.total_yards = 500;
+        handler.home_stats.passing_yards = 300;
+        handler.home_stats.rushing_yards = 100; // Total doesn't match
+        
+        const result = handler.validateStatistics(&handler.home_stats);
+        try testing.expectError(error.InvalidStatistics, result);
+        
+        // Test negative yards
+        handler.away_stats.total_yards = -100; // Invalid
+        const result2 = handler.validateStatistics(&handler.away_stats);
+        try testing.expectError(error.InvalidStatistics, result2);
+        
+        // Test excessive turnovers
+        handler.home_stats.turnovers = 50; // Unrealistic
+        handler.home_stats.plays_run = 20; // Can't have more turnovers than plays
+        const result3 = handler.validateStatistics(&handler.home_stats);
+        try testing.expectError(error.InvalidStatistics, result3);
+    }
+
+    test "unit: PlayHandler: validateGameState catches all invalid states" {
+        var handler = PlayHandler.init(12345);
+        
+        // Test various invalid configurations
+        const test_cases = [_]struct {
+            state: GameStateUpdate,
+            should_fail: bool,
+        }{
+            .{
+                .state = GameStateUpdate{
+                    .down = 5, // Invalid
+                    .distance = 10,
+                    .possession = .home,
+                    .home_score = 0,
+                    .away_score = 0,
+                    .quarter = 1,
+                    .time_remaining = 900,
+                    .play_clock = 40,
+                    .clock_running = false,
+                },
+                .should_fail = true,
+            },
+            .{
+                .state = GameStateUpdate{
+                    .down = 1,
+                    .distance = 10,
+                    .possession = .home,
+                    .home_score = 999,
+                    .away_score = 999,
+                    .quarter = 20, // Invalid quarter
+                    .time_remaining = 900,
+                    .play_clock = 40,
+                    .clock_running = false,
+                },
+                .should_fail = true,
+            },
+            .{
+                .state = GameStateUpdate{
+                    .down = 2,
+                    .distance = 7,
+                    .possession = .away,
+                    .home_score = 21,
+                    .away_score = 17,
+                    .quarter = 3,
+                    .time_remaining = 450,
+                    .play_clock = 25,
+                    .clock_running = true,
+                },
+                .should_fail = false, // Valid state
+            },
+        };
+        
+        for (test_cases) |tc| {
+            if (tc.should_fail) {
+                try testing.expectError(error.InvalidGameState, handler.validateGameState(tc.state));
+            } else {
+                try handler.validateGameState(tc.state);
+            }
+        }
+    }
+
+    test "integration: PlayHandler: error recovery maintains game continuity" {
+        var handler = PlayHandler.init(12345);
+        
+        // Start with valid state
+        handler.game_state.down = 1;
+        handler.game_state.distance = 10;
+        handler.game_state.possession = .home;
+        
+        // Create invalid play result
+        var invalid_result = PlayResult{
+            .play_type = .run_up_middle,
+            .yards_gained = 500, // Invalid
+            .out_of_bounds = false,
+            .pass_completed = false,
+            .is_touchdown = false,
+            .is_first_down = false,
+            .is_turnover = false,
+            .time_consumed = 6,
+            .field_position = 50,
+        };
+        
+        // Validate should fail
+        const validation = handler.validatePlayResult(&invalid_result);
+        try testing.expectError(error.InvalidPlayResult, validation);
+        
+        // Fix the result
+        invalid_result.yards_gained = 5;
+        try handler.validatePlayResult(&invalid_result);
+        
+        // Update game state - should work now
+        handler.updateGameState(&invalid_result);
+        try testing.expectEqual(@as(u8, 2), handler.game_state.down);
+        try testing.expectEqual(@as(u8, 5), handler.game_state.distance);
+    }
+
+    test "e2e: PlayHandler: complete error handling during drive" {
+        var handler = PlayHandler.init(12345);
+        
+        // Scenario 1: Invalid initial state recovery
+        handler.game_state.down = 0; // Invalid
+        if (handler.validateGameState(handler.game_state)) |_| {
+            try testing.expect(false);
+        } else |err| {
+            try testing.expectEqual(error.InvalidGameState, err);
+            // Fix it
+            handler.game_state.down = 1;
+        }
+        
+        // Process normal play
+        var result = handler.processPlay(.run_up_middle, .{});
+        handler.updateGameState(@constCast(&result));
+        
+        // Scenario 2: Invalid play result handling
+        var bad_result = PlayResult{
+            .play_type = .pass_deep,
+            .yards_gained = -100, // Invalid negative yards
+            .out_of_bounds = false,
+            .pass_completed = true,
+            .is_touchdown = false,
+            .is_first_down = false,
+            .is_turnover = false,
+            .time_consumed = 10,
+            .field_position = 50,
+        };
+        
+        if (handler.validatePlayResult(&bad_result)) |_| {
+            try testing.expect(false);
+        } else |err| {
+            try testing.expectEqual(error.InvalidPlayResult, err);
+            // Fix it
+            bad_result.yards_gained = 15;
+            try handler.validatePlayResult(&bad_result);
+        }
+        
+        // Scenario 3: Statistics validation
+        handler.home_stats.total_yards = 1000;
+        handler.home_stats.passing_yards = 600;
+        handler.home_stats.rushing_yards = 200; // Doesn't add up
+        
+        if (handler.validateStatistics(&handler.home_stats)) |_| {
+            try testing.expect(false);
+        } else |err| {
+            try testing.expectEqual(error.InvalidStatistics, err);
+            // Fix statistics
+            handler.home_stats.total_yards = 800;
+        }
+        
+        // Game continues normally
+        result = handler.processPlay(.field_goal, .{ .kick_distance = 35 });
+        try testing.expectEqual(PlayType.field_goal, result.play_type);
+    }
+
+    test "scenario: PlayHandler: handles errors during critical plays" {
+        var handler = PlayHandler.init(12345);
+        
+        // Red zone situation with errors
+        handler.game_state.down = 1;
+        handler.game_state.distance = 0; // Goal to go
+        handler.game_state.possession = .home;
+        handler.game_state.quarter = 4;
+        handler.game_state.time_remaining = 30;
+        handler.game_state.home_score = 21;
+        handler.game_state.away_score = 24;
+        
+        // Process touchdown attempt
+        var result = handler.processPlay(.quarterback_sneak, .{});
+        
+        // Simulate error: invalid field position update
+        result.field_position = 150; // Invalid
+        if (handler.validatePlayResult(&result)) |_| {
+            try testing.expect(false);
+        } else |err| {
+            try testing.expectEqual(error.InvalidPlayResult, err);
+            // Fix it
+            result.field_position = 100; // End zone
+            result.is_touchdown = true;
+        }
+        
+        // Update game state
+        handler.updateGameState(&result);
+        
+        // Verify touchdown scored
+        if (result.is_touchdown) {
+            handler.game_state.home_score += 6;
+            try testing.expectEqual(@as(u16, 27), handler.game_state.home_score);
+        }
+        
+        // Extra point with error
+        const xp_result = handler.processPlay(.extra_point, .{});
+        
+        // Simulate blocked extra point (special outcome)
+        if (xp_result.special_outcome == .extra_point_blocked) {
+            // Handle gracefully
+            handler.game_state.possession = .away;
+        } else if (xp_result.special_outcome == .extra_point_good) {
+            handler.game_state.home_score += 1;
+        }
+    }
+
+    test "stress: PlayHandler: handles rapid error conditions" {
+        var handler = PlayHandler.init(12345);
+        
+        // Rapidly cause and recover from various errors
+        for (0..100) |i| {
+            // Alternate between valid and invalid operations
+            if (i % 3 == 0) {
+                // Invalid game state
+                handler.game_state.down = @as(u8, @intCast((i % 10))); // Sometimes 0 (invalid)
+                handler.game_state.distance = @as(u8, @intCast((i % 256))); // Sometimes huge
+                
+                if (handler.validateGameState(handler.game_state)) |_| {
+                    // Valid by chance
+                } else |_| {
+                    // Fix it
+                    handler.game_state.down = @as(u8, @intCast((i % 4) + 1));
+                    handler.game_state.distance = @as(u8, @intCast((i % 20) + 1));
+                }
+            } else if (i % 3 == 1) {
+                // Process play with potential errors
+                const play_type: PlayType = if (i % 2 == 0) .run_up_middle else .pass_short;
+                var result = handler.processPlay(play_type, .{});
+                
+                // Sometimes corrupt the result
+                if (i % 5 == 0) {
+                    result.field_position = 200; // Invalid
+                    if (handler.validatePlayResult(&result)) |_| {
+                        // Shouldn't succeed
+                    } else |_| {
+                        result.field_position = 50; // Fix it
+                    }
+                }
+                
+                handler.updateGameState(&result);
+            } else {
+                // Update statistics with potential errors
+                handler.home_stats.plays_run += 1;
+                handler.home_stats.total_yards += @as(i32, @intCast(i % 30)) - 10;
+                
+                // Periodically validate and fix
+                if (i % 10 == 0) {
+                    if (handler.validateStatistics(&handler.home_stats)) |_| {
+                        // Valid
+                    } else |_| {
+                        // Reset to valid state
+                        handler.home_stats.total_yards = @intCast(@abs(handler.home_stats.total_yards));
+                        handler.home_stats.turnovers = @min(handler.home_stats.turnovers, handler.home_stats.plays_run);
+                    }
+                }
+            }
+        }
+        
+        // Final state should be valid
+        handler.game_state.down = 1;
+        handler.game_state.distance = 10;
+        try handler.validateGameState(handler.game_state);
     }
 
     // └──────────────────────────────────────────────────────────────────────────┘

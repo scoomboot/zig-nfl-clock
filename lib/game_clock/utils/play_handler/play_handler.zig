@@ -38,6 +38,9 @@
         kickoff_return,
         punt_return,
         
+        /// Scoring plays
+        touchdown,
+        
         /// Special situations
         kneel_down,
         spike,
@@ -75,6 +78,8 @@
         time_consumed: u32,
         /// Field position after play (0-100, 0 = own end zone)
         field_position: u8,
+        /// Special outcome (if any)
+        special_outcome: SpecialOutcome = .none,
     };
 
     /// Special play outcomes
@@ -87,6 +92,8 @@
         end_of_game,
         muffed_punt,
         blocked_kick,
+        extra_point_blocked,
+        extra_point_good,
         missed_field_goal,
         successful_onside_kick,
     };
@@ -138,8 +145,30 @@
         penalties: u8,
         /// Penalty yards
         penalty_yards: i16,
+        /// Total plays run
+        plays_run: u16,
     };
 
+    /// Play handler specific error set
+    pub const PlayHandlerError = error{
+        InvalidPlayType,
+        InvalidYardage,
+        InvalidFieldPosition,
+        InvalidDownAndDistance,
+        InvalidGameState,
+        InvalidStatistics,
+        StatisticsOverflow,
+        PlaySequenceError,
+    };
+
+    /// Error context for play handler
+    pub const PlayErrorContext = struct {
+        error_type: PlayHandlerError,
+        play_type: ?PlayType = null,
+        play_number: ?u32 = null,
+        field_position: ?u8 = null,
+        message: []const u8,
+    };
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════════╝
 
@@ -696,6 +725,235 @@
             // In a real implementation, this would be tracked more precisely
             _ = self; // Mark self as used
             return 50; // Midfield for now
+        }
+
+        /// Validate game state.
+        ///
+        /// Ensures the game state is valid and consistent.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Const reference to PlayHandler
+        ///
+        /// __Return__
+        ///
+        /// - void on success
+        ///
+        /// __Errors__
+        ///
+        /// - `PlayHandlerError.InvalidGameState`: If state is invalid
+        pub fn validateGameState(self: *const PlayHandler, state: anytype) PlayHandlerError!void {
+            const GameStateType = @TypeOf(self.game_state);
+            const game_state = if (@TypeOf(state) == GameStateType) 
+                state 
+            else if (@TypeOf(state) == *const GameStateType or @TypeOf(state) == *GameStateType)
+                state.*
+            else 
+                self.game_state;
+            
+            // Validate down
+            if (game_state.down < 1 or game_state.down > 4) {
+                return PlayHandlerError.InvalidDownAndDistance;
+            }
+
+            // Validate distance
+            if (game_state.distance > 100) {
+                return PlayHandlerError.InvalidDownAndDistance;
+            }
+
+            // Validate quarter
+            if (game_state.quarter < 1 or game_state.quarter > 5) {
+                return PlayHandlerError.InvalidGameState;
+            }
+
+            // Validate time remaining
+            const max_time: u32 = if (game_state.quarter == 5) 600 else 900;
+            if (game_state.time_remaining > max_time) {
+                return PlayHandlerError.InvalidGameState;
+            }
+
+            // Validate play clock
+            if (game_state.play_clock > 40) {
+                return PlayHandlerError.InvalidGameState;
+            }
+
+            // Validate scores (basic check for negative scores)
+            if (game_state.home_score > 200 or game_state.away_score > 200) {
+                return PlayHandlerError.InvalidGameState;
+            }
+        }
+
+        /// Validate play result.
+        ///
+        /// Ensures a play result is valid and consistent.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Const reference to PlayHandler
+        /// - `result`: Play result to validate
+        ///
+        /// __Return__
+        ///
+        /// - void on success
+        ///
+        /// __Errors__
+        ///
+        /// - Various PlayHandlerError types based on validation failures
+        pub fn validatePlayResult(self: *const PlayHandler, result: *const PlayResult) PlayHandlerError!void {
+            _ = self;
+
+            // Validate field position
+            if (result.field_position > 100) {
+                return PlayHandlerError.InvalidFieldPosition;
+            }
+
+            // Validate yards gained (reasonable range)
+            if (result.yards_gained < -50 or result.yards_gained > 100) {
+                return PlayHandlerError.InvalidYardage;
+            }
+
+            // Validate time consumed
+            if (result.time_consumed > 40) {
+                return PlayHandlerError.InvalidGameState;
+            }
+
+            // Validate logical consistency
+            if (result.is_touchdown and result.is_turnover) {
+                return PlayHandlerError.InvalidGameState;
+            }
+
+            // Pass plays must have pass_completed set correctly
+            switch (result.play_type) {
+                .pass_short, .pass_medium, .pass_deep, .screen_pass => {
+                    // These are pass plays, pass_completed should be meaningful
+                },
+                else => {
+                    // Non-pass plays shouldn't have pass_completed true
+                    if (result.pass_completed) {
+                        return PlayHandlerError.InvalidPlayType;
+                    }
+                },
+            }
+        }
+
+        /// Validate statistics.
+        ///
+        /// Ensures statistics are within valid ranges.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Const reference to PlayHandler
+        ///
+        /// __Return__
+        ///
+        /// - void on success
+        ///
+        /// __Errors__
+        ///
+        /// - `PlayHandlerError.StatisticsOverflow`: If statistics overflow
+        pub fn validateStatistics(self: *const PlayHandler, stats: anytype) PlayHandlerError!void {
+            const TeamStatisticsType = @TypeOf(self.home_stats);
+            const team_stats = if (@TypeOf(stats) == TeamStatisticsType) 
+                stats 
+            else if (@TypeOf(stats) == *const TeamStatisticsType or @TypeOf(stats) == *TeamStatisticsType)
+                stats.*
+            else 
+                self.home_stats;
+            
+            // Check stats
+            if (@abs(team_stats.total_yards) > 10000 or
+                @abs(team_stats.passing_yards) > 10000 or
+                @abs(team_stats.rushing_yards) > 10000) {
+                return PlayHandlerError.StatisticsOverflow;
+            }
+
+            // Validate third down conversion rates
+            if (team_stats.third_down_conversions > team_stats.third_down_attempts) {
+                return PlayHandlerError.StatisticsOverflow;
+            }
+
+            // Validate play number using self
+            if (self.play_number > 500) {
+                return PlayHandlerError.PlaySequenceError;
+            }
+            
+            // Additional validations for the specific stats passed in
+            // Check for unrealistic values in unsigned fields
+            if (team_stats.plays_run > 10000 or
+                team_stats.first_downs > 1000 or
+                team_stats.turnovers > 100) {
+                return PlayHandlerError.StatisticsOverflow;
+            }
+            
+            // Basic integrity checks
+            // Passing + rushing should approximately equal total
+            const calc_total = team_stats.passing_yards + team_stats.rushing_yards;
+            if (@abs(calc_total - team_stats.total_yards) > 100) {
+                return PlayHandlerError.InvalidStatistics;
+            }
+            
+            // Turnovers shouldn't exceed plays run
+            if (team_stats.turnovers > team_stats.plays_run) {
+                return PlayHandlerError.InvalidStatistics;
+            }
+        }
+
+        /// Recover from play handler error.
+        ///
+        /// Attempts to recover from a specific error condition.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to PlayHandler
+        /// - `err`: The error to recover from
+        ///
+        /// __Return__
+        ///
+        /// - void
+        pub fn recoverFromError(self: *PlayHandler, err: PlayHandlerError) void {
+            switch (err) {
+                PlayHandlerError.InvalidPlayType => {
+                    // Reset to safe play type
+                    // No direct action needed as play type is per-play
+                },
+                PlayHandlerError.InvalidYardage => {
+                    // Reset statistics that might be affected
+                    self.home_stats.total_yards = 0;
+                    self.away_stats.total_yards = 0;
+                },
+                PlayHandlerError.InvalidFieldPosition => {
+                    // Reset to midfield
+                    // Field position is typically transient
+                },
+                PlayHandlerError.InvalidDownAndDistance => {
+                    // Reset to first down
+                    self.game_state.down = 1;
+                    self.game_state.distance = 10;
+                },
+                PlayHandlerError.InvalidGameState => {
+                    // Reset to safe game state
+                    self.game_state = .{
+                        .down = 1,
+                        .distance = 10,
+                        .possession = .home,
+                        .home_score = 0,
+                        .away_score = 0,
+                        .quarter = 1,
+                        .time_remaining = 900,
+                        .play_clock = 40,
+                        .clock_running = false,
+                    };
+                },
+                PlayHandlerError.StatisticsOverflow => {
+                    // Reset statistics
+                    self.home_stats = std.mem.zeroes(PlayStatistics);
+                    self.away_stats = std.mem.zeroes(PlayStatistics);
+                },
+                PlayHandlerError.PlaySequenceError => {
+                    // Reset play sequence
+                    self.play_number = 0;
+                },
+            }
         }
     };
 

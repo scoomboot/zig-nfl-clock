@@ -38,6 +38,25 @@
 
 // ╔══════════════════════════════════════ TYPES ══════════════════════════════════════╗
 
+    /// Rules engine specific error set
+    pub const RulesEngineError = error{
+        InvalidQuarter,
+        InvalidDown,
+        InvalidDistance,
+        InvalidTimeoutCount,
+        InvalidGameSituation,
+        RuleViolation,
+        ClockManagementError,
+    };
+
+    /// Error context for rules engine
+    pub const RulesErrorContext = struct {
+        error_type: RulesEngineError,
+        situation: ?GameSituation = null,
+        message: []const u8,
+        rule_reference: []const u8,
+    };
+
     /// Play outcome types that affect clock
     pub const PlayOutcome = enum {
         incomplete_pass,
@@ -503,6 +522,159 @@
         fn isFirstDown(self: *RulesEngine) bool {
             return self.situation.down == 1;
         }
+
+        /// Validate game situation.
+        ///
+        /// Ensures the game situation is valid according to NFL rules.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Const reference to RulesEngine
+        ///
+        /// __Return__
+        ///
+        /// - void on success
+        ///
+        /// __Errors__
+        ///
+        /// - `RulesEngineError.InvalidGameSituation`: If situation is invalid
+        pub fn validateSituation(self: *const RulesEngine, situation: anytype) RulesEngineError!void {
+            const game_situation = if (@TypeOf(situation) == GameSituation) 
+                situation 
+            else if (@TypeOf(situation) == *const GameSituation or @TypeOf(situation) == *GameSituation)
+                situation.*
+            else 
+                self.situation;
+            
+            // Validate quarter
+            if (game_situation.quarter < 1 or game_situation.quarter > 5) {
+                return RulesEngineError.InvalidQuarter;
+            }
+
+            // Validate down
+            if (game_situation.down < 1 or game_situation.down > 4) {
+                return RulesEngineError.InvalidDown;
+            }
+
+            // Validate distance
+            if (game_situation.distance > 100) {
+                return RulesEngineError.InvalidDistance;
+            }
+
+            // Validate timeouts
+            if (game_situation.home_timeouts > 3 or game_situation.away_timeouts > 3) {
+                return RulesEngineError.InvalidTimeoutCount;
+            }
+
+            // Validate time remaining
+            const max_time = if (game_situation.is_overtime)
+                TimingConstants.OVERTIME_LENGTH
+            else
+                TimingConstants.QUARTER_LENGTH;
+
+            if (game_situation.time_remaining > max_time) {
+                return RulesEngineError.InvalidGameSituation;
+            }
+
+            // Check two-minute drill consistency
+            if (game_situation.is_two_minute_drill and 
+                game_situation.time_remaining > TimingConstants.TWO_MINUTE_WARNING) {
+                return RulesEngineError.InvalidGameSituation;
+            }
+        }
+
+        /// Validate clock decision.
+        ///
+        /// Ensures a clock decision is internally consistent.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Const reference to RulesEngine
+        /// - `decision`: Clock decision to validate
+        ///
+        /// __Return__
+        ///
+        /// - void on success
+        ///
+        /// __Errors__
+        ///
+        /// - `RulesEngineError.ClockManagementError`: If decision is invalid
+        pub fn validateClockDecision(self: *const RulesEngine, decision: ClockDecision) RulesEngineError!void {
+            _ = self;
+
+            // Can't restart on both ready and snap
+            if (decision.restart_on_ready and decision.restart_on_snap) {
+                return RulesEngineError.ClockManagementError;
+            }
+
+            // If clock is stopped, must have a reason
+            if (decision.should_stop and decision.stop_reason == null) {
+                return RulesEngineError.ClockManagementError;
+            }
+
+            // Play clock duration must be valid
+            if (decision.play_clock_duration != TimingConstants.PLAY_CLOCK_DURATION and
+                decision.play_clock_duration != TimingConstants.PLAY_CLOCK_AFTER_TIMEOUT and
+                decision.play_clock_duration != 0) {
+                return RulesEngineError.ClockManagementError;
+            }
+        }
+
+        /// Recover from rules engine error.
+        ///
+        /// Attempts to recover from a specific error condition.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to RulesEngine
+        /// - `err`: The error to recover from
+        ///
+        /// __Return__
+        ///
+        /// - void
+        pub fn recoverFromError(self: *RulesEngine, err: RulesEngineError) void {
+            switch (err) {
+                RulesEngineError.InvalidQuarter => {
+                    self.situation.quarter = 1;
+                    self.situation.time_remaining = TimingConstants.QUARTER_LENGTH;
+                },
+                RulesEngineError.InvalidDown => {
+                    self.situation.down = 1;
+                    self.situation.distance = 10;
+                },
+                RulesEngineError.InvalidDistance => {
+                    self.situation.distance = 10;
+                },
+                RulesEngineError.InvalidTimeoutCount => {
+                    self.situation.home_timeouts = @min(self.situation.home_timeouts, 3);
+                    self.situation.away_timeouts = @min(self.situation.away_timeouts, 3);
+                },
+                RulesEngineError.InvalidGameSituation => {
+                    // Reset to safe defaults
+                    self.situation = .{
+                        .quarter = 1,
+                        .time_remaining = TimingConstants.QUARTER_LENGTH,
+                        .down = 1,
+                        .distance = 10,
+                        .is_overtime = false,
+                        .home_timeouts = 3,
+                        .away_timeouts = 3,
+                        .possession_team = .home,
+                        .is_two_minute_drill = false,
+                    };
+                },
+                RulesEngineError.RuleViolation => {
+                    // Rule violations require specific handling
+                    // Reset to beginning of down
+                    self.situation.down = 1;
+                },
+                RulesEngineError.ClockManagementError => {
+                    // Reset clock state
+                    self.clock_running = false;
+                    self.hurry_up_mode = false;
+                },
+            }
+        }
     };
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════════╝
@@ -523,6 +695,11 @@
     pub fn shouldTriggerTwoMinuteWarning(situation: GameSituation) bool {
         // Two-minute warning occurs in 2nd and 4th quarters
         if (situation.quarter != 2 and situation.quarter != 4) {
+            return false;
+        }
+
+        // Don't trigger if already in two-minute drill
+        if (situation.is_two_minute_drill) {
             return false;
         }
 

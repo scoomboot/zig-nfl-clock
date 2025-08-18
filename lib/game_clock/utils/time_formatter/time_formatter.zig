@@ -52,6 +52,23 @@
         is_critical: bool = false,
     };
 
+    /// Time formatter specific error set
+    pub const TimeFormatterError = error{
+        InvalidTimeValue,
+        InvalidFormat,
+        BufferTooSmall,
+        InvalidThreshold,
+        FormattingError,
+    };
+
+    /// Error context for time formatter
+    pub const FormatterErrorContext = struct {
+        error_type: TimeFormatterError,
+        time_value: ?u32 = null,
+        format: ?TimeFormat = null,
+        message: []const u8,
+    };
+
 // ╚══════════════════════════════════════════════════════════════════════════════════════╝
 
 // ╔══════════════════════════════════════ INIT ══════════════════════════════════════╗
@@ -345,6 +362,156 @@
             };
 
             return try std.fmt.bufPrint(&self.buffer, "{d}{s} & {d}", .{ down, suffix, distance });
+        }
+
+        /// Validate time value.
+        ///
+        /// Ensures the time value is within valid ranges.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Const reference to TimeFormatter
+        /// - `seconds`: Time value in seconds
+        /// - `is_overtime`: Whether in overtime period
+        ///
+        /// __Return__
+        ///
+        /// - void on success
+        ///
+        /// __Errors__
+        ///
+        /// - `TimeFormatterError.InvalidTimeValue`: If time value is invalid
+        pub fn validateTimeValue(self: *const TimeFormatter, seconds: u32, is_overtime: bool) TimeFormatterError!void {
+            _ = self;
+
+            // Check maximum time for quarter
+            const max_time: u32 = if (is_overtime) 600 else 900; // 10 or 15 minutes
+
+            if (seconds > max_time) {
+                return TimeFormatterError.InvalidTimeValue;
+            }
+
+            // Check for unreasonable total game time (over 5 hours)
+            if (seconds > 18000) {
+                return TimeFormatterError.InvalidTimeValue;
+            }
+        }
+
+        /// Validate thresholds.
+        ///
+        /// Ensures warning thresholds are valid.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Const reference to TimeFormatter
+        ///
+        /// __Return__
+        ///
+        /// - void on success
+        ///
+        /// __Errors__
+        ///
+        /// - `TimeFormatterError.InvalidThreshold`: If thresholds are invalid
+        pub fn validateThresholds(self: *const TimeFormatter, thresholds: anytype) TimeFormatterError!void {
+            const thresh = if (@TypeOf(thresholds) == @TypeOf(self.thresholds))
+                thresholds
+            else if (@hasField(@TypeOf(thresholds), "play_clock_warning"))
+                thresholds
+            else
+                self.thresholds;
+            
+            // Check play clock warning is reasonable
+            if (thresh.play_clock_warning > 40) {
+                return TimeFormatterError.InvalidThreshold;
+            }
+
+            // Check quarter warning is reasonable
+            if (thresh.quarter_warning > 900) {
+                return TimeFormatterError.InvalidThreshold;
+            }
+
+            // Check critical time is reasonable
+            if (thresh.critical_time > 60) {
+                return TimeFormatterError.InvalidThreshold;
+            }
+
+            // Critical time should typically be less than or equal to warning thresholds
+            // But this is not a hard requirement - warnings can happen before critical
+        }
+
+        /// Validate format selection.
+        ///
+        /// Ensures the format is appropriate for the time value.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Const reference to TimeFormatter
+        /// - `seconds`: Time value in seconds
+        /// - `format`: Requested format
+        ///
+        /// __Return__
+        ///
+        /// - void on success
+        ///
+        /// __Errors__
+        ///
+        /// - `TimeFormatterError.InvalidFormat`: If format is inappropriate
+        pub fn validateFormat(self: *const TimeFormatter, seconds: u32, format: TimeFormat) TimeFormatterError!void {
+            _ = self;
+
+            switch (format) {
+                .with_tenths => {
+                    // Tenths format only makes sense for short times
+                    if (seconds > 60) {
+                        return TimeFormatterError.InvalidFormat;
+                    }
+                },
+                .full => {
+                    // Full format only needed for long times
+                    if (seconds < 3600 and format == .full) {
+                        // Not an error, but could be a warning
+                    }
+                },
+                .standard, .compact => {
+                    // These are always valid
+                },
+            }
+        }
+
+        /// Recover from formatter error.
+        ///
+        /// Attempts to recover from a specific error condition.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to TimeFormatter
+        /// - `err`: The error to recover from
+        ///
+        /// __Return__
+        ///
+        /// - void
+        pub fn recoverFromError(self: *TimeFormatter, err: TimeFormatterError) void {
+            switch (err) {
+                TimeFormatterError.InvalidTimeValue => {
+                    // Reset to safe defaults
+                    self.buffer = undefined;
+                },
+                TimeFormatterError.InvalidFormat => {
+                    // No recovery needed, format is per-call
+                },
+                TimeFormatterError.BufferTooSmall => {
+                    // Clear buffer
+                    self.buffer = undefined;
+                },
+                TimeFormatterError.InvalidThreshold => {
+                    // Reset to default thresholds
+                    self.thresholds = .{};
+                },
+                TimeFormatterError.FormattingError => {
+                    // Clear buffer
+                    self.buffer = undefined;
+                },
+            }
         }
     };
 

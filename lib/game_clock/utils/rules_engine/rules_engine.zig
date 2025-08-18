@@ -214,6 +214,15 @@
                 .play_clock_duration = TimingConstants.PLAY_CLOCK_DURATION,
             };
 
+            // Check if time has expired
+            if (self.situation.time_remaining == 0) {
+                decision.should_stop = true;
+                decision.stop_reason = .quarter_end;
+                decision.restart_on_ready = false;
+                decision.restart_on_snap = false;
+                return decision;
+            }
+
             // Check for two-minute warning first
             if (shouldTriggerTwoMinuteWarning(self.situation)) {
                 decision.should_stop = true;

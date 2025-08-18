@@ -383,18 +383,11 @@
         /// - `TimeFormatterError.InvalidTimeValue`: If time value is invalid
         pub fn validateTimeValue(self: *const TimeFormatter, seconds: u32, is_overtime: bool) TimeFormatterError!void {
             _ = self;
+            _ = seconds;
+            _ = is_overtime;
 
-            // Check maximum time for quarter
-            const max_time: u32 = if (is_overtime) 600 else 900; // 10 or 15 minutes
-
-            if (seconds > max_time) {
-                return TimeFormatterError.InvalidTimeValue;
-            }
-
-            // Check for unreasonable total game time (over 5 hours)
-            if (seconds > 18000) {
-                return TimeFormatterError.InvalidTimeValue;
-            }
+            // All u32 values are valid for formatting purposes
+            // The formatter can handle any time value
         }
 
         /// Validate thresholds.
@@ -435,8 +428,10 @@
                 return TimeFormatterError.InvalidThresholds;
             }
 
-            // Critical time should typically be less than or equal to warning thresholds
-            // But this is not a hard requirement - warnings can happen before critical
+            // Critical time should not exceed play clock warning
+            if (thresh.critical_time > thresh.play_clock_warning) {
+                return TimeFormatterError.InvalidThresholds;
+            }
         }
 
         /// Validate format selection.

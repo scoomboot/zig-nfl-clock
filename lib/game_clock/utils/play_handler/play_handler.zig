@@ -189,6 +189,8 @@
         play_number: u32,
         /// Random number generator for play variations
         rng: std.Random,
+        /// Current field position (0-100, 0 = own end zone, 100 = opponent end zone)
+        field_position: u8,
 
         /// Initialize play handler.
         ///
@@ -221,6 +223,7 @@
                 .possession_team = .away,
                 .play_number = 0,
                 .rng = prng.random(),
+                .field_position = 25,  // Start at own 25-yard line
             };
         }
 
@@ -246,6 +249,7 @@
                 .possession_team = game_state.possession,
                 .play_number = 0,
                 .rng = prng.random(),
+                .field_position = 25,  // Start at own 25-yard line
             };
         }
 
@@ -278,19 +282,19 @@
                 .is_first_down = false,
                 .is_turnover = false,
                 .time_consumed = 0,
-                .field_position = 50, // Default midfield
+                .field_position = self.field_position, // Default midfield
             };
 
             switch (play_type) {
-                .pass_short => result = self.processPassPlay(5, 75),
-                .pass_medium => result = self.processPassPlay(15, 60),
-                .pass_deep => result = self.processPassPlay(30, 35),
-                .screen_pass => result = self.processPassPlay(3, 70),
+                .pass_short => result = self.processPassPlay(play_type, 5, 75),
+                .pass_medium => result = self.processPassPlay(play_type, 15, 60),
+                .pass_deep => result = self.processPassPlay(play_type, 30, 35),
+                .screen_pass => result = self.processPassPlay(play_type, 3, 70),
                 
-                .run_up_middle => result = self.processRunPlay(4, 15),
-                .run_off_tackle => result = self.processRunPlay(5, 20),
-                .run_sweep => result = self.processRunPlay(3, 25),
-                .quarterback_sneak => result = self.processRunPlay(1, 85),
+                .run_up_middle => result = self.processRunPlay(play_type, 4, 15),
+                .run_off_tackle => result = self.processRunPlay(play_type, 5, 20),
+                .run_sweep => result = self.processRunPlay(play_type, 3, 25),
+                .quarterback_sneak => result = self.processRunPlay(play_type, 1, 85),
                 
                 .punt => result = self.processPunt(options.kick_distance orelse 45),
                 .field_goal => result = self.processFieldGoal(options.kick_distance orelse 35),
@@ -335,11 +339,19 @@
                 self.game_state.time_remaining = 0;
             }
 
+            // Update field position
+            if (!result.is_touchdown and !result.is_turnover) {
+                const new_position = @as(i16, self.field_position) + result.yards_gained;
+                self.field_position = @intCast(@min(100, @max(0, new_position)));
+                result.field_position = self.field_position; // Update result with actual position
+            }
+
             // Update down and distance
             if (result.is_touchdown) {
                 // Reset for kickoff
                 self.game_state.down = 1;
                 self.game_state.distance = 10;
+                self.field_position = 25; // Reset to kickoff position
                 // Add touchdown points
                 if (self.possession_team == .home) {
                     self.game_state.home_score += 6;
@@ -355,6 +367,8 @@
                 self.game_state.possession = self.possession_team;
                 self.game_state.down = 1;
                 self.game_state.distance = 10;
+                // Flip field position for turnover (100 - current position)
+                self.field_position = @intCast(100 - self.field_position);
             } else {
                 // Normal down progression
                 if (self.game_state.down < 4) {
@@ -367,6 +381,8 @@
                     self.game_state.possession = self.possession_team;
                     self.game_state.down = 1;
                     self.game_state.distance = 10;
+                    // Flip field position for turnover on downs
+                    self.field_position = @intCast(100 - self.field_position);
                 }
             }
 
@@ -432,9 +448,9 @@
         }
 
         /// Process a pass play
-        fn processPassPlay(self: *PlayHandler, target_yards: i16, completion_pct: u8) PlayResult {
+        fn processPassPlay(self: *PlayHandler, play_type: PlayType, target_yards: i16, completion_pct: u8) PlayResult {
             var result = PlayResult{
-                .play_type = .pass_short,
+                .play_type = play_type,
                 .yards_gained = 0,
                 .out_of_bounds = false,
                 .pass_completed = false,
@@ -442,7 +458,7 @@
                 .is_first_down = false,
                 .is_turnover = false,
                 .time_consumed = 5,
-                .field_position = 50,
+                .field_position = self.field_position,
             };
 
             // Determine if pass is complete
@@ -453,7 +469,7 @@
                 // Calculate yards gained with variance
                 const variance = self.rng.intRangeAtMost(i16, -3, 5);
                 result.yards_gained = target_yards + variance;
-                result.time_consumed = 7;
+                result.time_consumed = 25;  // Completed pass takes more time
                 
                 // Check for out of bounds (20% chance on sideline passes)
                 result.out_of_bounds = self.rng.intRangeAtMost(u8, 1, 100) <= 20;
@@ -471,7 +487,7 @@
                 }
             } else {
                 // Incomplete pass
-                result.time_consumed = 4;
+                result.time_consumed = 8;  // Incomplete pass stops clock quickly
                 
                 // Small chance of interception on incomplete passes
                 if (self.rng.intRangeAtMost(u8, 1, 100) <= 3) {
@@ -484,17 +500,17 @@
         }
 
         /// Process a run play
-        fn processRunPlay(self: *PlayHandler, avg_yards: i16, big_play_pct: u8) PlayResult {
+        fn processRunPlay(self: *PlayHandler, play_type: PlayType, avg_yards: i16, big_play_pct: u8) PlayResult {
             var result = PlayResult{
-                .play_type = .run_up_middle,
+                .play_type = play_type,
                 .yards_gained = 0,
                 .out_of_bounds = false,
                 .pass_completed = false,
                 .is_touchdown = false,
                 .is_first_down = false,
                 .is_turnover = false,
-                .time_consumed = 6,
-                .field_position = 50,
+                .time_consumed = 30,  // Running play consumes more clock
+                .field_position = self.field_position,
             };
 
             // Check for big play
@@ -544,7 +560,7 @@
                 .is_first_down = false,
                 .is_turnover = true, // Punt is change of possession
                 .time_consumed = 6,
-                .field_position = 50,
+                .field_position = self.field_position,
             };
 
             // Add variance to kick distance
@@ -574,8 +590,8 @@
                 .is_touchdown = false,
                 .is_first_down = false,
                 .is_turnover = false,
-                .time_consumed = 5,
-                .field_position = 50,
+                .time_consumed = 10,  // Field goal attempt time
+                .field_position = self.field_position,
             };
 
             // Calculate success rate based on distance
@@ -612,7 +628,7 @@
                 .is_first_down = false,
                 .is_turnover = false,
                 .time_consumed = 3,
-                .field_position = 50,
+                .field_position = self.field_position,
             };
 
             // 95% success rate for extra points
@@ -640,7 +656,7 @@
                 .is_first_down = false,
                 .is_turnover = true, // Change of possession
                 .time_consumed = 6,
-                .field_position = 25, // Default starting position
+                .field_position = self.field_position, // Current position
             };
 
             // Add variance to return
@@ -722,10 +738,7 @@
 
         /// Get current field position (0-100, 0 = own end zone)
         fn getFieldPosition(self: *const PlayHandler) u8 {
-            // Simplified field position tracking
-            // In a real implementation, this would be tracked more precisely
-            _ = self; // Mark self as used
-            return 50; // Midfield for now
+            return self.field_position;
         }
 
         /// Validate game state.

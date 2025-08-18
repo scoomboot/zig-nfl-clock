@@ -753,12 +753,12 @@
             
             // Validate down
             if (game_state.down < 1 or game_state.down > 4) {
-                return PlayHandlerError.InvalidDownAndDistance;
+                return PlayHandlerError.InvalidGameState;
             }
 
             // Validate distance
             if (game_state.distance > 100) {
-                return PlayHandlerError.InvalidDownAndDistance;
+                return PlayHandlerError.InvalidGameState;
             }
 
             // Validate quarter

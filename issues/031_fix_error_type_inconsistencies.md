@@ -68,4 +68,33 @@ Bug Fix / Error Handling
 
 ---
 *Created: 2025-08-18*
-*Status: Not Started*
+*Status: Resolved*
+
+## Resolution Summary (2025-08-18)
+
+### Changes Made:
+
+1. **TimeFormatter Module**:
+   - Renamed `InvalidThreshold` to `InvalidThresholds` throughout the module (6 occurrences)
+   - File: `lib/game_clock/utils/time_formatter/time_formatter.zig`
+
+2. **RulesEngine Module**:
+   - Added `InvalidSituation` to the `RulesEngineError` enum
+   - Updated `validateSituation()` to return `InvalidSituation` for general validation failures
+   - Changed return values at lines 552, 557, 562, 567, 577, 583 from specific errors to `InvalidSituation`
+   - File: `lib/game_clock/utils/rules_engine/rules_engine.zig`
+
+3. **PlayHandler Module**:
+   - Updated `validateGameState()` to return `InvalidGameState` instead of `InvalidDownAndDistance`
+   - Changed return values at lines 756 and 761
+   - File: `lib/game_clock/utils/play_handler/play_handler.zig`
+
+### Test Results:
+- Fixed the primary error type inconsistencies as specified in the issue
+- Tests now properly expect the correct error types
+- Some unrelated test failures remain but are outside the scope of this issue
+
+### Notes:
+- The changes follow the recommended approach from the implementation notes
+- All three modules now use consistent error naming and return appropriate error types based on context
+- Further validation logic improvements may be needed but are separate from this naming/type consistency issue

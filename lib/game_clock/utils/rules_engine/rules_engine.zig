@@ -44,6 +44,7 @@
         InvalidDown,
         InvalidDistance,
         InvalidTimeoutCount,
+        InvalidSituation,
         InvalidGameSituation,
         RuleViolation,
         ClockManagementError,
@@ -548,22 +549,22 @@
             
             // Validate quarter
             if (game_situation.quarter < 1 or game_situation.quarter > 5) {
-                return RulesEngineError.InvalidQuarter;
+                return RulesEngineError.InvalidSituation;
             }
 
             // Validate down
             if (game_situation.down < 1 or game_situation.down > 4) {
-                return RulesEngineError.InvalidDown;
+                return RulesEngineError.InvalidSituation;
             }
 
             // Validate distance
             if (game_situation.distance > 100) {
-                return RulesEngineError.InvalidDistance;
+                return RulesEngineError.InvalidSituation;
             }
 
             // Validate timeouts
             if (game_situation.home_timeouts > 3 or game_situation.away_timeouts > 3) {
-                return RulesEngineError.InvalidTimeoutCount;
+                return RulesEngineError.InvalidSituation;
             }
 
             // Validate time remaining
@@ -573,13 +574,13 @@
                 TimingConstants.QUARTER_LENGTH;
 
             if (game_situation.time_remaining > max_time) {
-                return RulesEngineError.InvalidGameSituation;
+                return RulesEngineError.InvalidSituation;
             }
 
             // Check two-minute drill consistency
             if (game_situation.is_two_minute_drill and 
                 game_situation.time_remaining > TimingConstants.TWO_MINUTE_WARNING) {
-                return RulesEngineError.InvalidGameSituation;
+                return RulesEngineError.InvalidSituation;
             }
         }
 

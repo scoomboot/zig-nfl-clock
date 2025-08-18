@@ -57,7 +57,7 @@
         InvalidTimeValue,
         InvalidFormat,
         BufferTooSmall,
-        InvalidThreshold,
+        InvalidThresholds,
         FormattingError,
     };
 
@@ -411,7 +411,7 @@
         ///
         /// __Errors__
         ///
-        /// - `TimeFormatterError.InvalidThreshold`: If thresholds are invalid
+        /// - `TimeFormatterError.InvalidThresholds`: If thresholds are invalid
         pub fn validateThresholds(self: *const TimeFormatter, thresholds: anytype) TimeFormatterError!void {
             const thresh = if (@TypeOf(thresholds) == @TypeOf(self.thresholds))
                 thresholds
@@ -422,17 +422,17 @@
             
             // Check play clock warning is reasonable
             if (thresh.play_clock_warning > 40) {
-                return TimeFormatterError.InvalidThreshold;
+                return TimeFormatterError.InvalidThresholds;
             }
 
             // Check quarter warning is reasonable
             if (thresh.quarter_warning > 900) {
-                return TimeFormatterError.InvalidThreshold;
+                return TimeFormatterError.InvalidThresholds;
             }
 
             // Check critical time is reasonable
             if (thresh.critical_time > 60) {
-                return TimeFormatterError.InvalidThreshold;
+                return TimeFormatterError.InvalidThresholds;
             }
 
             // Critical time should typically be less than or equal to warning thresholds
@@ -503,7 +503,7 @@
                     // Clear buffer
                     self.buffer = undefined;
                 },
-                TimeFormatterError.InvalidThreshold => {
+                TimeFormatterError.InvalidThresholds => {
                     // Reset to default thresholds
                     self.thresholds = .{};
                 },

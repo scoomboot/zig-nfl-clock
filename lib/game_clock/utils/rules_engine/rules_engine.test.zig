@@ -1421,4 +1421,520 @@
         }
     }
 
+    test "unit: RulesEngine: untimed down granted on defensive penalty at end of half" {
+        var engine = RulesEngine.init();
+        const PenaltyDetails = @import("rules_engine.zig").PenaltyDetails;
+        const PenaltyType = @import("rules_engine.zig").PenaltyType;
+        
+        // Set up end of second quarter with time expired
+        engine.situation.quarter = 2;
+        engine.situation.time_remaining = 0;
+        engine.situation.down = 3;
+        engine.situation.distance = 7;
+        
+        // Create defensive pass interference penalty (grants automatic first down)
+        const penalty_details = PenaltyDetails{
+            .is_defensive = true,
+            .grants_automatic_first_down = true,
+            .penalty_type = PenaltyType.pass_interference,
+            .yards = 15,
+        };
+        
+        // Process play with penalty
+        const decision = engine.processPlayWithPenalty(.incomplete_pass, penalty_details);
+        
+        // Verify untimed down is granted
+        try testing.expect(engine.situation.untimed_down_available);
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.penalty, decision.stop_reason);
+        try testing.expect(decision.restart_on_snap);
+        
+        // Verify penalty info is stored
+        try testing.expect(engine.situation.last_play_penalty_info != null);
+        try testing.expect(engine.situation.last_play_penalty_info.?.is_defensive);
+        try testing.expect(engine.situation.last_play_penalty_info.?.grants_automatic_first_down);
+    }
+
+    test "unit: RulesEngine: untimed down execution ends half" {
+        var engine = RulesEngine.init();
+        
+        // Set up untimed down scenario
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 0;
+        engine.situation.untimed_down_available = true;
+        
+        // Execute the untimed down play
+        const decision = engine.processPlay(.run_inbounds);
+        
+        // Verify half ends after untimed down
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.quarter_end, decision.stop_reason);
+        try testing.expect(!decision.restart_on_ready);
+        try testing.expect(!decision.restart_on_snap);
+        try testing.expect(!engine.situation.untimed_down_available);
+    }
+
+    test "unit: RulesEngine: no untimed down on offensive penalty" {
+        var engine = RulesEngine.init();
+        const PenaltyDetails = @import("rules_engine.zig").PenaltyDetails;
+        const PenaltyType = @import("rules_engine.zig").PenaltyType;
+        
+        // Set up end of second quarter with time expired
+        engine.situation.quarter = 2;
+        engine.situation.time_remaining = 0;
+        
+        // Create offensive holding penalty (does not grant untimed down)
+        const penalty_details = PenaltyDetails{
+            .is_defensive = false,
+            .grants_automatic_first_down = false,
+            .penalty_type = PenaltyType.holding_offense,
+            .yards = -10,
+        };
+        
+        // Process play with offensive penalty
+        const decision = engine.processPlayWithPenalty(.run_inbounds, penalty_details);
+        
+        // Verify no untimed down is granted
+        try testing.expect(!engine.situation.untimed_down_available);
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.quarter_end, decision.stop_reason);
+    }
+
+    test "unit: RulesEngine: no untimed down on defensive penalty without automatic first down" {
+        var engine = RulesEngine.init();
+        const PenaltyDetails = @import("rules_engine.zig").PenaltyDetails;
+        const PenaltyType = @import("rules_engine.zig").PenaltyType;
+        
+        // Set up end of fourth quarter with time expired
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 0;
+        
+        // Create defensive offside penalty (defensive but no automatic first down)
+        const penalty_details = PenaltyDetails{
+            .is_defensive = true,
+            .grants_automatic_first_down = false,
+            .penalty_type = PenaltyType.defensive_offside,
+            .yards = 5,
+        };
+        
+        // Process play with penalty
+        const decision = engine.processPlayWithPenalty(.incomplete_pass, penalty_details);
+        
+        // Verify no untimed down is granted
+        try testing.expect(!engine.situation.untimed_down_available);
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.quarter_end, decision.stop_reason);
+    }
+
+    test "unit: RulesEngine: no untimed down in quarters 1 and 3" {
+        var engine = RulesEngine.init();
+        const PenaltyDetails = @import("rules_engine.zig").PenaltyDetails;
+        const PenaltyType = @import("rules_engine.zig").PenaltyType;
+        
+        // Test quarter 1 - should not grant untimed down
+        engine.situation.quarter = 1;
+        engine.situation.time_remaining = 0;
+        
+        const penalty_details = PenaltyDetails{
+            .is_defensive = true,
+            .grants_automatic_first_down = true,
+            .penalty_type = PenaltyType.pass_interference,
+            .yards = 15,
+        };
+        
+        var decision = engine.processPlayWithPenalty(.incomplete_pass, penalty_details);
+        try testing.expect(!engine.situation.untimed_down_available);
+        
+        // Test quarter 3 - should not grant untimed down
+        engine.situation.quarter = 3;
+        engine.situation.time_remaining = 0;
+        
+        decision = engine.processPlayWithPenalty(.incomplete_pass, penalty_details);
+        try testing.expect(!engine.situation.untimed_down_available);
+    }
+
+    // ┌──────────────────────────── Untimed Down Tests ────────────────────────────┐
+
+    test "unit: RulesEngine: defensive holding at end of 2nd quarter grants untimed down" {
+        var engine = RulesEngine.init();
+        const PenaltyDetails = @import("rules_engine.zig").PenaltyDetails;
+        const PenaltyType = @import("rules_engine.zig").PenaltyType;
+        
+        // Set up end of 2nd quarter with time expired
+        engine.situation.quarter = 2;
+        engine.situation.time_remaining = 0;
+        engine.situation.down = 3;
+        engine.situation.distance = 8;
+        engine.situation.possession_team = .home;
+        
+        // Create defensive holding penalty (grants automatic first down)
+        const penalty_details = PenaltyDetails{
+            .is_defensive = true,
+            .grants_automatic_first_down = true,
+            .penalty_type = PenaltyType.defensive_holding,
+            .yards = 10,
+        };
+        
+        // Process play with defensive holding
+        const decision = engine.processPlayWithPenalty(.run_inbounds, penalty_details);
+        
+        // Verify untimed down is granted
+        try testing.expect(engine.situation.untimed_down_available);
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.penalty, decision.stop_reason);
+        try testing.expect(decision.restart_on_snap);
+        try testing.expect(decision.play_clock_reset);
+        
+        // Verify penalty info is stored for reference
+        try testing.expect(engine.situation.last_play_penalty_info != null);
+        try testing.expect(engine.situation.last_play_penalty_info.?.is_defensive);
+        try testing.expect(engine.situation.last_play_penalty_info.?.grants_automatic_first_down);
+        try testing.expectEqual(PenaltyType.defensive_holding, engine.situation.last_play_penalty_info.?.penalty_type);
+    }
+
+    test "unit: RulesEngine: pass interference at end of 4th quarter grants untimed down" {
+        var engine = RulesEngine.init();
+        const PenaltyDetails = @import("rules_engine.zig").PenaltyDetails;
+        const PenaltyType = @import("rules_engine.zig").PenaltyType;
+        
+        // Set up end of 4th quarter (game-ending scenario)
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 0;
+        engine.situation.down = 4;
+        engine.situation.distance = 3;
+        engine.situation.possession_team = .away;
+        
+        // Create pass interference penalty
+        const penalty_details = PenaltyDetails{
+            .is_defensive = true,
+            .grants_automatic_first_down = true,
+            .penalty_type = PenaltyType.pass_interference,
+            .yards = 15,
+        };
+        
+        // Process incomplete pass with pass interference
+        const decision = engine.processPlayWithPenalty(.incomplete_pass, penalty_details);
+        
+        // Verify untimed down is granted even at end of regulation
+        try testing.expect(engine.situation.untimed_down_available);
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.penalty, decision.stop_reason);
+        try testing.expect(decision.restart_on_snap);
+        
+        // Time should remain at 0 but game continues
+        try testing.expectEqual(@as(u32, 0), engine.situation.time_remaining);
+    }
+
+    test "unit: RulesEngine: roughing the passer at end of half grants untimed down" {
+        var engine = RulesEngine.init();
+        const PenaltyDetails = @import("rules_engine.zig").PenaltyDetails;
+        const PenaltyType = @import("rules_engine.zig").PenaltyType;
+        
+        // Set up end of 2nd quarter
+        engine.situation.quarter = 2;
+        engine.situation.time_remaining = 0;
+        engine.situation.down = 2;
+        engine.situation.distance = 15;
+        
+        // Create roughing the passer penalty
+        const penalty_details = PenaltyDetails{
+            .is_defensive = true,
+            .grants_automatic_first_down = true,
+            .penalty_type = PenaltyType.roughing_the_passer,
+            .yards = 15,
+        };
+        
+        // Process sack with roughing penalty
+        const decision = engine.processPlayWithPenalty(.sack, penalty_details);
+        
+        // Verify untimed down is granted
+        try testing.expect(engine.situation.untimed_down_available);
+        try testing.expectEqual(ClockStopReason.penalty, decision.stop_reason);
+    }
+
+    test "unit: RulesEngine: executing untimed down ends the half" {
+        var engine = RulesEngine.init();
+        
+        // Set up scenario where untimed down was already granted
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 0;
+        engine.situation.untimed_down_available = true;
+        engine.situation.down = 1;
+        engine.situation.distance = 10;
+        
+        // Execute the untimed down play (any play type)
+        const decision = engine.processPlay(.complete_pass_inbounds);
+        
+        // Verify half ends after executing untimed down
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.quarter_end, decision.stop_reason);
+        try testing.expect(!decision.restart_on_ready);
+        try testing.expect(!decision.restart_on_snap);
+        
+        // Untimed down flag should be cleared
+        try testing.expect(!engine.situation.untimed_down_available);
+        try testing.expect(engine.situation.last_play_penalty_info == null);
+    }
+
+    test "unit: RulesEngine: defensive penalty in quarter 1 does not grant untimed down" {
+        var engine = RulesEngine.init();
+        const PenaltyDetails = @import("rules_engine.zig").PenaltyDetails;
+        const PenaltyType = @import("rules_engine.zig").PenaltyType;
+        
+        // Set up end of 1st quarter (not end of half)
+        engine.situation.quarter = 1;
+        engine.situation.time_remaining = 0;
+        
+        // Even with defensive penalty that grants first down
+        const penalty_details = PenaltyDetails{
+            .is_defensive = true,
+            .grants_automatic_first_down = true,
+            .penalty_type = PenaltyType.pass_interference,
+            .yards = 15,
+        };
+        
+        // Process play with penalty
+        const decision = engine.processPlayWithPenalty(.incomplete_pass, penalty_details);
+        
+        // Should NOT grant untimed down (not end of half)
+        try testing.expect(!engine.situation.untimed_down_available);
+        try testing.expectEqual(ClockStopReason.quarter_end, decision.stop_reason);
+    }
+
+    test "unit: RulesEngine: defensive penalty in quarter 3 does not grant untimed down" {
+        var engine = RulesEngine.init();
+        const PenaltyDetails = @import("rules_engine.zig").PenaltyDetails;
+        const PenaltyType = @import("rules_engine.zig").PenaltyType;
+        
+        // Set up end of 3rd quarter (not end of half)
+        engine.situation.quarter = 3;
+        engine.situation.time_remaining = 0;
+        
+        const penalty_details = PenaltyDetails{
+            .is_defensive = true,
+            .grants_automatic_first_down = true,
+            .penalty_type = PenaltyType.defensive_holding,
+            .yards = 10,
+        };
+        
+        const decision = engine.processPlayWithPenalty(.run_inbounds, penalty_details);
+        
+        // Should NOT grant untimed down
+        try testing.expect(!engine.situation.untimed_down_available);
+        try testing.expectEqual(ClockStopReason.quarter_end, decision.stop_reason);
+    }
+
+    test "unit: RulesEngine: offensive penalty at end of half does not grant untimed down" {
+        var engine = RulesEngine.init();
+        const PenaltyDetails = @import("rules_engine.zig").PenaltyDetails;
+        const PenaltyType = @import("rules_engine.zig").PenaltyType;
+        
+        // Set up end of 2nd quarter
+        engine.situation.quarter = 2;
+        engine.situation.time_remaining = 0;
+        
+        // Create offensive holding penalty
+        const penalty_details = PenaltyDetails{
+            .is_defensive = false,  // Offensive penalty
+            .grants_automatic_first_down = false,
+            .penalty_type = PenaltyType.holding_offense,
+            .yards = -10,
+        };
+        
+        const decision = engine.processPlayWithPenalty(.run_inbounds, penalty_details);
+        
+        // Should NOT grant untimed down (offensive penalty)
+        try testing.expect(!engine.situation.untimed_down_available);
+        try testing.expectEqual(ClockStopReason.quarter_end, decision.stop_reason);
+    }
+
+    test "unit: RulesEngine: time expires without penalty ends quarter normally" {
+        var engine = RulesEngine.init();
+        
+        // Set up end of 4th quarter
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 0;
+        
+        // Process play without penalty
+        const decision = engine.processPlay(.run_inbounds);
+        
+        // Should end quarter normally
+        try testing.expect(!engine.situation.untimed_down_available);
+        try testing.expectEqual(ClockStopReason.quarter_end, decision.stop_reason);
+        try testing.expect(!decision.restart_on_ready);
+        try testing.expect(!decision.restart_on_snap);
+    }
+
+    test "unit: RulesEngine: defensive offside without automatic first down does not grant untimed down" {
+        var engine = RulesEngine.init();
+        const PenaltyDetails = @import("rules_engine.zig").PenaltyDetails;
+        const PenaltyType = @import("rules_engine.zig").PenaltyType;
+        
+        // Set up end of 2nd quarter
+        engine.situation.quarter = 2;
+        engine.situation.time_remaining = 0;
+        
+        // Defensive offside - defensive but NO automatic first down
+        const penalty_details = PenaltyDetails{
+            .is_defensive = true,
+            .grants_automatic_first_down = false,  // Key difference
+            .penalty_type = PenaltyType.defensive_offside,
+            .yards = 5,
+        };
+        
+        const decision = engine.processPlayWithPenalty(.incomplete_pass, penalty_details);
+        
+        // Should NOT grant untimed down (no automatic first down)
+        try testing.expect(!engine.situation.untimed_down_available);
+        try testing.expectEqual(ClockStopReason.quarter_end, decision.stop_reason);
+    }
+
+    test "unit: RulesEngine: multiple defensive penalties choosing enforcement grants untimed down" {
+        var engine = RulesEngine.init();
+        const PenaltyDetails = @import("rules_engine.zig").PenaltyDetails;
+        const PenaltyType = @import("rules_engine.zig").PenaltyType;
+        
+        // Set up end of 4th quarter
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 0;
+        
+        // Scenario 1: Choose defensive holding (10 yards)
+        var engine1 = engine;  // Copy for first scenario
+        const penalty1 = PenaltyDetails{
+            .is_defensive = true,
+            .grants_automatic_first_down = true,
+            .penalty_type = PenaltyType.defensive_holding,
+            .yards = 10,
+        };
+        
+        var decision = engine1.processPlayWithPenalty(.incomplete_pass, penalty1);
+        try testing.expect(engine1.situation.untimed_down_available);
+        try testing.expectEqual(ClockStopReason.penalty, decision.stop_reason);
+        
+        // Scenario 2: Choose pass interference (15 yards) instead
+        var engine2 = engine;  // Copy for second scenario
+        const penalty2 = PenaltyDetails{
+            .is_defensive = true,
+            .grants_automatic_first_down = true,
+            .penalty_type = PenaltyType.pass_interference,
+            .yards = 15,
+        };
+        
+        decision = engine2.processPlayWithPenalty(.incomplete_pass, penalty2);
+        
+        // Either penalty choice should grant untimed down
+        try testing.expect(engine2.situation.untimed_down_available);
+        try testing.expectEqual(@as(u32, 0), engine2.situation.time_remaining);
+    }
+
+    test "unit: RulesEngine: state transitions when untimed down is granted vs executed" {
+        var engine = RulesEngine.init();
+        const PenaltyDetails = @import("rules_engine.zig").PenaltyDetails;
+        const PenaltyType = @import("rules_engine.zig").PenaltyType;
+        
+        // Initial state - normal play
+        engine.situation.quarter = 2;
+        engine.situation.time_remaining = 0;
+        engine.situation.down = 3;
+        engine.situation.distance = 7;
+        try testing.expect(!engine.situation.untimed_down_available);
+        
+        // State after penalty grants untimed down
+        const penalty = PenaltyDetails{
+            .is_defensive = true,
+            .grants_automatic_first_down = true,
+            .penalty_type = PenaltyType.face_mask,
+            .yards = 15,
+        };
+        
+        var decision = engine.processPlayWithPenalty(.run_inbounds, penalty);
+        
+        // Verify state after granting untimed down
+        try testing.expect(engine.situation.untimed_down_available);
+        try testing.expectEqual(@as(u32, 0), engine.situation.time_remaining);
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.penalty, decision.stop_reason);
+        try testing.expect(decision.restart_on_snap);  // Will snap for untimed down
+        
+        // State after executing untimed down
+        decision = engine.processPlay(.touchdown);  // Score on untimed down
+        
+        // Verify state after executing untimed down
+        try testing.expect(!engine.situation.untimed_down_available);
+        try testing.expect(decision.should_stop);
+        try testing.expectEqual(ClockStopReason.quarter_end, decision.stop_reason);
+        try testing.expect(!decision.restart_on_ready);
+        try testing.expect(!decision.restart_on_snap);
+    }
+
+    test "integration: RulesEngine: complete untimed down scenario with defensive pass interference" {
+        var engine = RulesEngine.init();
+        const PenaltyDetails = @import("rules_engine.zig").PenaltyDetails;
+        const PenaltyType = @import("rules_engine.zig").PenaltyType;
+        
+        // Simulate end of half scenario
+        engine.situation.quarter = 2;
+        engine.situation.time_remaining = 3;  // 3 seconds left
+        engine.situation.down = 3;
+        engine.situation.distance = 10;
+        engine.situation.possession_team = .home;
+        
+        // Time runs out during play with defensive pass interference
+        engine.situation.time_remaining = 0;
+        
+        const penalty = PenaltyDetails{
+            .is_defensive = true,
+            .grants_automatic_first_down = true,
+            .penalty_type = PenaltyType.pass_interference,
+            .yards = 15,
+        };
+        
+        // Process the play with penalty
+        const decision1 = engine.processPlayWithPenalty(.incomplete_pass, penalty);
+        
+        // Verify untimed down granted
+        try testing.expect(engine.situation.untimed_down_available);
+        try testing.expectEqual(ClockStopReason.penalty, decision1.stop_reason);
+        
+        // Execute untimed down - attempt field goal
+        const decision2 = engine.processPlay(.field_goal_attempt);
+        
+        // Verify half ends
+        try testing.expect(!engine.situation.untimed_down_available);
+        try testing.expectEqual(ClockStopReason.quarter_end, decision2.stop_reason);
+    }
+
+    test "integration: RulesEngine: untimed down with ExtendedPlayOutcome interface" {
+        var engine = RulesEngine.init();
+        const PenaltyDetails = @import("rules_engine.zig").PenaltyDetails;
+        const PenaltyType = @import("rules_engine.zig").PenaltyType;
+        const ExtendedPlayOutcome = @import("rules_engine.zig").ExtendedPlayOutcome;
+        
+        // Set up end of 4th quarter
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 0;
+        
+        // Create extended play outcome with penalty
+        const extended = ExtendedPlayOutcome{
+            .base_outcome = .complete_pass_inbounds,
+            .had_penalty = true,
+            .penalty_details = PenaltyDetails{
+                .is_defensive = true,
+                .grants_automatic_first_down = true,
+                .penalty_type = PenaltyType.unnecessary_roughness,
+                .yards = 15,
+            },
+        };
+        
+        // Process using extended interface
+        const decision = engine.processPlayExtended(extended);
+        
+        // Verify untimed down granted
+        try testing.expect(engine.situation.untimed_down_available);
+        try testing.expectEqual(ClockStopReason.penalty, decision.stop_reason);
+        try testing.expect(decision.restart_on_snap);
+    }
+
+    // └──────────────────────────────────────────────────────────────────────────┘
+
 // ╚══════════════════════════════════════════════════════════════════════════════════════════╝

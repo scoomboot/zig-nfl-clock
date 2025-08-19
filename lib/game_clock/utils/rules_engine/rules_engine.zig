@@ -82,6 +82,43 @@
         safety,
     };
 
+    /// Penalty types that can occur during a play
+    pub const PenaltyType = enum {
+        defensive_holding,
+        pass_interference,
+        roughing_the_passer,
+        defensive_offside,
+        encroachment,
+        face_mask,
+        personal_foul,
+        unnecessary_roughness,
+        unsportsmanlike_conduct,
+        delay_of_game,
+        false_start,
+        illegal_formation,
+        illegal_shift,
+        illegal_motion,
+        holding_offense,
+        illegal_use_of_hands,
+        illegal_block,
+        other,
+    };
+
+    /// Detailed penalty information
+    pub const PenaltyDetails = struct {
+        is_defensive: bool,
+        grants_automatic_first_down: bool,
+        penalty_type: PenaltyType,
+        yards: i8,
+    };
+
+    /// Extended play outcome with penalty information
+    pub const ExtendedPlayOutcome = struct {
+        base_outcome: PlayOutcome,
+        had_penalty: bool = false,
+        penalty_details: ?PenaltyDetails = null,
+    };
+
     /// Clock stop reasons
     pub const ClockStopReason = enum {
         incomplete_pass,
@@ -108,6 +145,8 @@
         away_timeouts: u8,
         possession_team: Team,
         is_two_minute_drill: bool,
+        untimed_down_available: bool = false,
+        last_play_penalty_info: ?PenaltyDetails = null,
     };
 
     /// Clock management decision
@@ -167,6 +206,8 @@
                     .away_timeouts = 3,
                     .possession_team = .away,
                     .is_two_minute_drill = false,
+                    .untimed_down_available = false,
+                    .last_play_penalty_info = null,
                 },
                 .clock_running = false,
                 .hurry_up_mode = false,
@@ -192,19 +233,19 @@
             };
         }
 
-        /// Process a play outcome and determine clock behavior.
+        /// Process a play outcome with extended penalty information.
         ///
-        /// Evaluates the play outcome and applies NFL clock rules.
+        /// Evaluates the play outcome and applies NFL clock rules including untimed down scenarios.
         ///
         /// __Parameters__
         ///
         /// - `self`: Mutable reference to RulesEngine
-        /// - `outcome`: The type of play that occurred
+        /// - `outcome`: Extended play outcome with penalty information
         ///
         /// __Return__
         ///
         /// - ClockDecision with appropriate clock management actions
-        pub fn processPlay(self: *RulesEngine, outcome: PlayOutcome) ClockDecision {
+        pub fn processPlayExtended(self: *RulesEngine, outcome: ExtendedPlayOutcome) ClockDecision {
             var decision = ClockDecision{
                 .should_stop = false,
                 .stop_reason = null,
@@ -214,8 +255,40 @@
                 .play_clock_duration = TimingConstants.PLAY_CLOCK_DURATION,
             };
 
-            // Check if time has expired
+            // Check if we're currently executing an untimed down
+            // This happens when a previous play ended with time expired but granted an untimed down
+            if (self.situation.untimed_down_available and self.situation.time_remaining == 0) {
+                // This untimed down has now been executed, so end the half
+                self.situation.untimed_down_available = false;
+                self.situation.last_play_penalty_info = null;
+                decision.should_stop = true;
+                decision.stop_reason = .quarter_end;
+                decision.restart_on_ready = false;
+                decision.restart_on_snap = false;
+                return decision;
+            }
+
+            // Check if time expired during this play
             if (self.situation.time_remaining == 0) {
+                // Check for untimed down eligibility due to defensive penalty
+                if (outcome.had_penalty and outcome.penalty_details != null) {
+                    const penalty = outcome.penalty_details.?;
+                    if (penalty.is_defensive and 
+                        penalty.grants_automatic_first_down and 
+                        isEndOfHalf(self.situation)) {
+                        // Grant untimed down - clock stays at 0 but allow one more play
+                        self.situation.untimed_down_available = true;
+                        self.situation.last_play_penalty_info = penalty;
+                        // Clock stops but game continues for the untimed down
+                        decision.should_stop = true;
+                        decision.stop_reason = .penalty;
+                        decision.restart_on_snap = true;
+                        decision.play_clock_reset = true;
+                        return decision;
+                    }
+                }
+                
+                // Normal time expiration without untimed down
                 decision.should_stop = true;
                 decision.stop_reason = .quarter_end;
                 decision.restart_on_ready = false;
@@ -232,7 +305,7 @@
                 return decision;
             }
 
-            switch (outcome) {
+            switch (outcome.base_outcome) {
                 .incomplete_pass => {
                     decision.should_stop = true;
                     decision.stop_reason = .incomplete_pass;
@@ -274,6 +347,10 @@
                 .penalty => {
                     decision.should_stop = true;
                     decision.stop_reason = .penalty;
+                    // Store penalty information if available
+                    if (outcome.penalty_details) |penalty| {
+                        self.situation.last_play_penalty_info = penalty;
+                    }
                     // Clock restart depends on penalty type and game situation
                     decision.restart_on_ready = true;
                 },
@@ -672,6 +749,8 @@
                         .away_timeouts = 3,
                         .possession_team = .home,
                         .is_two_minute_drill = false,
+                        .untimed_down_available = false,
+                        .last_play_penalty_info = null,
                     };
                 },
                 RulesEngineError.RuleViolation => {
@@ -701,9 +780,59 @@
                         .away_timeouts = 3,
                         .possession_team = .home,
                         .is_two_minute_drill = false,
+                        .untimed_down_available = false,
+                        .last_play_penalty_info = null,
                     };
                 },
             }
+        }
+
+        /// Process a play outcome and determine clock behavior.
+        ///
+        /// Main API for processing play outcomes with NFL timing rules.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to RulesEngine
+        /// - `outcome`: Play outcome that occurred
+        ///
+        /// __Return__
+        ///
+        /// - ClockDecision with appropriate clock management actions
+        pub fn processPlay(self: *RulesEngine, outcome: PlayOutcome) ClockDecision {
+            // For penalty outcomes, check if we have stored penalty details from processPenalty
+            const extended = ExtendedPlayOutcome{
+                .base_outcome = outcome,
+                .had_penalty = (outcome == .penalty),
+                .penalty_details = if (outcome == .penalty) self.situation.last_play_penalty_info else null,
+            };
+            return self.processPlayExtended(extended);
+        }
+
+        /// Process a play with explicit penalty information.
+        ///
+        /// Used when a play has a penalty that needs to be evaluated for untimed down eligibility.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to RulesEngine
+        /// - `outcome`: Base play outcome
+        /// - `penalty_details`: Optional penalty information if a penalty occurred
+        ///
+        /// __Return__
+        ///
+        /// - ClockDecision with appropriate clock management actions
+        pub fn processPlayWithPenalty(self: *RulesEngine, outcome: PlayOutcome, penalty_details: ?PenaltyDetails) ClockDecision {
+            const extended = ExtendedPlayOutcome{
+                .base_outcome = outcome,
+                .had_penalty = (penalty_details != null),
+                .penalty_details = penalty_details,
+            };
+            // Store penalty details for potential untimed down
+            if (penalty_details) |details| {
+                self.situation.last_play_penalty_info = details;
+            }
+            return self.processPlayExtended(extended);
         }
     };
 
@@ -784,6 +913,45 @@
 
         // Hurry-up offense reduces play duration
         return if (hurry_up) @max(3, base_duration - 2) else base_duration;
+    }
+
+    /// Check if it's the end of a half.
+    ///
+    /// Determines if the current quarter is at the end of the first or second half.
+    ///
+    /// __Parameters__
+    ///
+    /// - `situation`: Current game situation
+    ///
+    /// __Return__
+    ///
+    /// - Boolean indicating if it's end of 2nd or 4th quarter
+    pub fn isEndOfHalf(situation: GameSituation) bool {
+        return situation.quarter == 2 or situation.quarter == 4;
+    }
+
+    /// Check if a penalty type grants automatic first down.
+    ///
+    /// Determines if a defensive penalty results in an automatic first down.
+    ///
+    /// __Parameters__
+    ///
+    /// - `penalty_type`: Type of penalty to check
+    ///
+    /// __Return__
+    ///
+    /// - Boolean indicating if penalty grants automatic first down
+    pub fn isDefensivePenaltyWithFirstDown(penalty_type: PenaltyType) bool {
+        return switch (penalty_type) {
+            .defensive_holding,
+            .pass_interference,
+            .roughing_the_passer,
+            .face_mask,
+            .personal_foul,
+            .unnecessary_roughness,
+            .unsportsmanlike_conduct => true,
+            else => false,
+        };
     }
 
 

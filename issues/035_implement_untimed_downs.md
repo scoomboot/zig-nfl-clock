@@ -39,12 +39,12 @@ Common scenarios:
 - Roughing the passer at end of half
 
 ## Acceptance Criteria
-- [ ] Add untimed down support to RulesEngine
-- [ ] Implement penalty detection that triggers untimed downs
-- [ ] Handle end-of-half scenarios correctly
-- [ ] Add game state tracking for when untimed downs are available
-- [ ] Ensure regular time expiration still works when no penalties occur
-- [ ] Add comprehensive tests for untimed down scenarios
+- [x] Add untimed down support to RulesEngine
+- [x] Implement penalty detection that triggers untimed downs
+- [x] Handle end-of-half scenarios correctly
+- [x] Add game state tracking for when untimed downs are available
+- [x] Ensure regular time expiration still works when no penalties occur
+- [x] Add comprehensive tests for untimed down scenarios
 
 ## Implementation Notes
 
@@ -103,5 +103,41 @@ Feature Enhancement / NFL Rules Compliance
 
 ---
 *Created: 2025-08-18*
-*Status: Not Started*
+*Status: Resolved*
 *Found during: Session review after Issue #033 resolution*
+*Resolved: 2025-08-19*
+
+## Resolution Summary
+
+Successfully implemented comprehensive untimed down support for end-of-half scenarios according to NFL rules.
+
+### Implementation Details
+
+#### 1. Fixed Core Logic (rules_engine.zig)
+- Corrected time expiration handling to check untimed down execution first
+- Properly grants untimed downs when:
+  - Time expires (time_remaining = 0)
+  - Defensive penalty grants automatic first down
+  - Occurs at end of half (quarter 2 or 4)
+- Maintains state through `untimed_down_available` flag
+- Added support methods:
+  - `processPlayExtended()` - Handles ExtendedPlayOutcome with penalty details
+  - `processPlayWithPenalty()` - Simplified penalty processing
+
+#### 2. Comprehensive Test Coverage (rules_engine.test.zig)
+Added 14 new tests covering:
+- **Positive cases**: Defensive penalties at end of half grant untimed downs
+- **Negative cases**: No untimed down for offensive penalties or mid-quarter
+- **Edge cases**: Multiple penalties, state transitions
+- **Integration**: Complete play scenarios with penalties
+
+### Test Results
+✅ All 240 tests passing including new untimed down tests
+✅ No regression in existing functionality
+✅ Full MCS compliance maintained
+
+### Key Changes
+- Proper state management for untimed down availability
+- Correct NFL rule enforcement for end-of-half scenarios
+- Backward compatible implementation preserving existing API
+- Comprehensive test coverage ensuring reliability

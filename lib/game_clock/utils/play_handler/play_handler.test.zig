@@ -19,6 +19,7 @@
     const SpecialOutcome = @import("play_handler.zig").SpecialOutcome;
     const GameStateUpdate = @import("play_handler.zig").GameStateUpdate;
     const PlayStatistics = @import("play_handler.zig").PlayStatistics;
+    const PlayOptions = @import("play_handler.zig").PlayOptions;
     
     // Import utility functions
     const getExpectedPoints = @import("play_handler.zig").getExpectedPoints;
@@ -183,7 +184,7 @@
         play_sequence: []const PlayType,
     ) PlayStatistics {
         for (play_sequence) |play_type| {
-            const result = handler.processPlay(play_type, .{});
+            const result = handler.processPlay(play_type, .{}, null);
             handler.updateGameState(@constCast(&result));
             handler.updateStatistics(@constCast(&result));
         }
@@ -207,7 +208,7 @@
         
         var total_yards: i32 = 0;
         for (drive_plays) |play| {
-            const result = handler.processPlay(play, .{});
+            const result = handler.processPlay(play, .{}, null);
             total_yards += result.yards_gained;
             
             if (result.is_touchdown) {
@@ -223,7 +224,7 @@
         
         // Try field goal if in range
         if (total_yards > 30) {
-            const fg_result = handler.processPlay(.field_goal, .{ .kick_distance = 35 });
+            const fg_result = handler.processPlay(.field_goal, .{ .kick_distance = 35 }, null);
             return fg_result.special_outcome == .field_goal_good;
         }
         
@@ -374,7 +375,7 @@
     test "unit: PlayHandler: processes pass plays" {
         var handler = PlayHandler.init(12345);
         
-        const result = handler.processPlay(.pass_short, .{});
+        const result = handler.processPlay(.pass_short, .{}, null);
         
         try testing.expectEqual(PlayType.pass_short, result.play_type);
         try testing.expect(result.time_consumed > 0);
@@ -384,7 +385,7 @@
     test "unit: PlayHandler: processes run plays" {
         var handler = PlayHandler.init(12345);
         
-        const result = handler.processPlay(.run_up_middle, .{});
+        const result = handler.processPlay(.run_up_middle, .{}, null);
         
         try testing.expectEqual(PlayType.run_up_middle, result.play_type);
         try testing.expect(result.time_consumed > 0);
@@ -395,16 +396,16 @@
         var handler = PlayHandler.init(12345);
         
         // Test punt
-        const punt_result = handler.processPlay(.punt, .{ .kick_distance = 45 });
+        const punt_result = handler.processPlay(.punt, .{ .kick_distance = 45 }, null);
         try testing.expectEqual(PlayType.punt, punt_result.play_type);
         try testing.expect(punt_result.is_turnover); // Punt changes possession
         
         // Test field goal
-        const fg_result = handler.processPlay(.field_goal, .{ .kick_distance = 35 });
+        const fg_result = handler.processPlay(.field_goal, .{ .kick_distance = 35 }, null);
         try testing.expectEqual(PlayType.field_goal, fg_result.play_type);
         
         // Test kickoff
-        const ko_result = handler.processPlay(.kickoff, .{ .return_yards = 25 });
+        const ko_result = handler.processPlay(.kickoff, .{ .return_yards = 25 }, null);
         try testing.expectEqual(PlayType.kickoff, ko_result.play_type);
         try testing.expect(ko_result.is_turnover); // Kickoff changes possession
     }
@@ -412,7 +413,7 @@
     test "unit: PlayHandler: processes kneel down" {
         var handler = PlayHandler.init(12345);
         
-        const result = handler.processPlay(.kneel_down, .{});
+        const result = handler.processPlay(.kneel_down, .{}, null);
         
         try testing.expectEqual(PlayType.kneel_down, result.play_type);
         try testing.expectEqual(@as(i16, -1), result.yards_gained);
@@ -422,7 +423,7 @@
     test "unit: PlayHandler: processes spike" {
         var handler = PlayHandler.init(12345);
         
-        const result = handler.processPlay(.spike, .{});
+        const result = handler.processPlay(.spike, .{}, null);
         
         try testing.expectEqual(PlayType.spike, result.play_type);
         try testing.expectEqual(@as(i16, 0), result.yards_gained);
@@ -434,10 +435,10 @@
         
         try testing.expectEqual(@as(u32, 0), handler.play_number);
         
-        _ = handler.processPlay(.run_up_middle, .{});
+        _ = handler.processPlay(.run_up_middle, .{}, null);
         try testing.expectEqual(@as(u32, 1), handler.play_number);
         
-        _ = handler.processPlay(.pass_short, .{});
+        _ = handler.processPlay(.pass_short, .{}, null);
         try testing.expectEqual(@as(u32, 2), handler.play_number);
     }
 
@@ -639,18 +640,18 @@
         handler.possession_team = .home;
         
         // First down - run for 3 yards
-        var result = handler.processPlay(.run_up_middle, .{});
+        var result = handler.processPlay(.run_up_middle, .{}, null);
         handler.game_state.down = 2;
         handler.game_state.distance = 7;
         
         // Second down - incomplete pass
-        result = handler.processPlay(.pass_medium, .{});
+        result = handler.processPlay(.pass_medium, .{}, null);
         if (!result.pass_completed) {
             handler.game_state.down = 3;
         }
         
         // Third down - complete pass for first down
-        result = handler.processPlay(.pass_short, .{});
+        result = handler.processPlay(.pass_short, .{}, null);
         if (result.is_first_down) {
             handler.game_state.down = 1;
             handler.game_state.distance = 10;
@@ -661,10 +662,10 @@
         handler.game_state.distance = 5;
         
         // Goal line run for touchdown
-        result = handler.processPlay(.quarterback_sneak, .{});
+        result = handler.processPlay(.quarterback_sneak, .{}, null);
         
         // Extra point
-        result = handler.processPlay(.extra_point, .{});
+        result = handler.processPlay(.extra_point, .{}, null);
         
         // Verify scoring
         try testing.expect(handler.game_state.home_score >= 0);
@@ -686,7 +687,7 @@
         
         // Simulate hurry-up offense
         for (0..8) |_| {
-            const result = handler.processPlay(.pass_short, .{});
+            const result = handler.processPlay(.pass_short, .{}, null);
             plays_run += 1;
             time_used += result.time_consumed;
             
@@ -706,7 +707,7 @@
         }
         
         // Attempt field goal
-        const fg_result = handler.processPlay(.field_goal, .{ .kick_distance = 35 });
+        const fg_result = handler.processPlay(.field_goal, .{ .kick_distance = 35 }, null);
         
         // Verify time management
         try testing.expect(time_used < 120); // Used less than full 2 minutes
@@ -718,7 +719,7 @@
         var handler = PlayHandler.init(12345);
         
         // Kickoff to start game
-        var result = handler.processPlay(.kickoff, .{ .return_yards = 25 });
+        var result = handler.processPlay(.kickoff, .{ .return_yards = 25 }, null);
         try testing.expect(result.is_turnover); // Possession changes
         try testing.expect(result.field_position > 0);
         
@@ -727,14 +728,14 @@
         handler.game_state.distance = 7;
         
         // Punt
-        result = handler.processPlay(.punt, .{ .kick_distance = 45 });
+        result = handler.processPlay(.punt, .{ .kick_distance = 45 }, null);
         try testing.expect(result.is_turnover);
         
         // Drive ending in field goal attempt
         handler.game_state.down = 4;
         handler.game_state.distance = 8;
         
-        result = handler.processPlay(.field_goal, .{ .kick_distance = 42 });
+        result = handler.processPlay(.field_goal, .{ .kick_distance = 42 }, null);
         try testing.expectEqual(PlayType.field_goal, result.play_type);
         
         // Check if points were scored (depends on RNG)
@@ -760,7 +761,7 @@
         var total_time: u32 = 0;
         
         // First down - 7-yard run
-        var result = handler.processPlay(.run_off_tackle, .{});
+        var result = handler.processPlay(.run_off_tackle, .{}, null);
         handler.updateGameState(@constCast(&result));
         handler.updateStatistics(@constCast(&result));
         total_plays += 1;
@@ -772,7 +773,7 @@
         handler.game_state.distance = 3;
         
         // Second down - 12-yard pass completion for first down
-        result = handler.processPlay(.pass_medium, .{});
+        result = handler.processPlay(.pass_medium, .{}, null);
         handler.updateGameState(@constCast(&result));
         handler.updateStatistics(@constCast(&result));
         total_plays += 1;
@@ -793,7 +794,7 @@
         };
         
         for (drive_plays) |play| {
-            result = handler.processPlay(play, .{});
+            result = handler.processPlay(play, .{}, null);
             handler.updateGameState(@constCast(&result));
             handler.updateStatistics(@constCast(&result));
             total_plays += 1;
@@ -823,7 +824,7 @@
         try testing.expect(handler.home_stats.first_downs >= 1); // At least one first down
         
         // Extra point attempt
-        result = handler.processPlay(.extra_point, .{});
+        result = handler.processPlay(.extra_point, .{}, null);
         try testing.expectEqual(PlayType.extra_point, result.play_type);
         
         // Verify scoring or significant progress
@@ -848,21 +849,21 @@
         var total_time: u32 = 0;
         
         // First down - run up middle stuffed
-        var result = handler.processPlay(.run_up_middle, .{});
+        var result = handler.processPlay(.run_up_middle, .{}, null);
         handler.updateGameState(@constCast(&result));
         handler.updateStatistics(@constCast(&result));
         downs_used += 1;
         total_time += result.time_consumed;
         
         // Second down - pass incomplete in end zone
-        result = handler.processPlay(.pass_short, .{});
+        result = handler.processPlay(.pass_short, .{}, null);
         handler.updateGameState(@constCast(&result));
         handler.updateStatistics(@constCast(&result));
         downs_used += 1;
         total_time += result.time_consumed;
         
         // Third down - another run attempt
-        result = handler.processPlay(.quarterback_sneak, .{});
+        result = handler.processPlay(.quarterback_sneak, .{}, null);
         handler.updateGameState(@constCast(&result));
         handler.updateStatistics(@constCast(&result));
         downs_used += 1;
@@ -871,14 +872,14 @@
         // Fourth down - final attempt (field goal or go for it)
         if (handler.game_state.down == 4 and handler.game_state.distance <= 3) {
             // Going for touchdown
-            result = handler.processPlay(.pass_short, .{});
+            result = handler.processPlay(.pass_short, .{}, null);
             handler.updateGameState(@constCast(&result));
             handler.updateStatistics(@constCast(&result));
             downs_used += 1;
             total_time += result.time_consumed;
         } else {
             // Field goal attempt
-            result = handler.processPlay(.field_goal, .{ .kick_distance = 20 });
+            result = handler.processPlay(.field_goal, .{ .kick_distance = 20 }, null);
             handler.updateGameState(@constCast(&result));
             handler.updateStatistics(@constCast(&result));
             downs_used += 1;
@@ -925,7 +926,8 @@
         };
         
         for (hurry_up_plays) |play| {
-            const result = handler.processPlay(play, .{});
+            // Disable turnovers for deterministic test behavior
+            const result = handler.processPlay(play, .{}, PlayOptions{ .enable_turnovers = false });
             handler.updateStatistics(@constCast(&result));
             plays_run += 1;
             
@@ -999,7 +1001,7 @@
                 else => .run_up_middle,
             };
             
-            _ = handler.processPlay(play_type, .{});
+            _ = handler.processPlay(play_type, .{}, null);
         }
         
         const elapsed = std.time.milliTimestamp() - start_time;
@@ -1275,7 +1277,7 @@
         }
         
         // Process normal play
-        var result = handler.processPlay(.run_up_middle, .{});
+        var result = handler.processPlay(.run_up_middle, .{}, null);
         handler.updateGameState(@constCast(&result));
         
         // Scenario 2: Invalid play result handling
@@ -1314,7 +1316,7 @@
         }
         
         // Game continues normally
-        result = handler.processPlay(.field_goal, .{ .kick_distance = 35 });
+        result = handler.processPlay(.field_goal, .{ .kick_distance = 35 }, null);
         try testing.expectEqual(PlayType.field_goal, result.play_type);
     }
 
@@ -1331,7 +1333,7 @@
         handler.game_state.away_score = 24;
         
         // Process touchdown attempt
-        var result = handler.processPlay(.quarterback_sneak, .{});
+        var result = handler.processPlay(.quarterback_sneak, .{}, null);
         
         // Simulate error: invalid field position update
         result.field_position = 150; // Invalid
@@ -1354,7 +1356,7 @@
         }
         
         // Extra point with error
-        const xp_result = handler.processPlay(.extra_point, .{});
+        const xp_result = handler.processPlay(.extra_point, .{}, null);
         
         // Simulate blocked extra point (special outcome)
         if (xp_result.special_outcome == .extra_point_blocked) {
@@ -1386,7 +1388,7 @@
             } else if (i % 3 == 1) {
                 // Process play with potential errors
                 const play_type: PlayType = if (i % 2 == 0) .run_up_middle else .pass_short;
-                var result = handler.processPlay(play_type, .{});
+                var result = handler.processPlay(play_type, .{}, null);
                 
                 // Sometimes corrupt the result
                 if (i % 5 == 0) {
@@ -1458,7 +1460,9 @@
         };
         
         for (all_play_types) |play_type| {
-            const result = handler.processPlay(play_type, .{});
+            // Pass PlayOptions with turnovers disabled to ensure play types remain unchanged
+            const options = PlayOptions{ .enable_turnovers = false };
+            const result = handler.processPlay(play_type, .{}, options);
             
             // Every play should produce valid result
             try testing.expect(result.time_consumed >= 0);
@@ -1550,7 +1554,7 @@
                 else => .run_up_middle,
             };
             
-            const result = handler.processPlay(play_type, .{});
+            const result = handler.processPlay(play_type, .{}, null);
             
             // Update game state
             if (handler.game_state.time_remaining > result.time_consumed) {
@@ -1571,6 +1575,66 @@
         // Verify game progressed
         try testing.expect(handler.play_number == 150);
         try testing.expect(handler.game_state.quarter > 1);
+    }
+
+    test "unit: PlayHandler: PlayOptions controls turnovers" {
+        // Test with turnovers disabled
+        var handler = PlayHandler.init(999); // Fixed seed for reproducibility
+        const no_turnover_opts = PlayOptions{
+            .enable_turnovers = false,
+            .turnover_chance = 0,
+        };
+        
+        // Run many plays with turnovers disabled
+        var turnover_count: u32 = 0;
+        for (0..100) |_| {
+            const result = handler.processPlay(.pass_deep, .{}, no_turnover_opts);
+            if (result.is_turnover) {
+                turnover_count += 1;
+            }
+        }
+        
+        // With turnovers disabled, there should be no turnovers
+        try testing.expectEqual(@as(u32, 0), turnover_count);
+        
+        // Reset handler and test with turnovers enabled
+        handler = PlayHandler.init(999);
+        const turnover_opts = PlayOptions{
+            .enable_turnovers = true,
+            .turnover_chance = 100, // 100% chance for testing
+        };
+        
+        // Run incomplete passes with 100% turnover chance
+        var interception_count: u32 = 0;
+        for (0..10) |_| {
+            // Force incomplete pass scenario by using deep pass with low completion
+            var modified_handler = PlayHandler.init(@intCast(999 + interception_count));
+            const result = modified_handler.processPlay(.pass_deep, .{}, turnover_opts);
+            if (!result.pass_completed and result.is_turnover) {
+                interception_count += 1;
+            }
+        }
+        
+        // With 100% turnover chance, incomplete passes should result in interceptions
+        try testing.expect(interception_count > 0);
+    }
+
+    test "unit: PlayHandler: deterministic with turnovers disabled" {
+        var handler = PlayHandler.init(12345);
+        const options = PlayOptions{ .enable_turnovers = false };
+        
+        // Run same play multiple times - should get same play type back
+        for (0..10) |_| {
+            const result = handler.processPlay(.pass_short, .{}, options);
+            try testing.expectEqual(PlayType.pass_short, result.play_type);
+        }
+        
+        // Test with different play types
+        const test_plays = [_]PlayType{ .run_sweep, .pass_deep, .field_goal };
+        for (test_plays) |play_type| {
+            const result = handler.processPlay(play_type, .{}, options);
+            try testing.expectEqual(play_type, result.play_type);
+        }
     }
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════════╝

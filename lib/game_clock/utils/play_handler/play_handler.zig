@@ -149,6 +149,14 @@
         plays_run: u16,
     };
 
+    /// Options for controlling play processing behavior
+    pub const PlayOptions = struct {
+        /// Enable random turnovers (interceptions, fumbles)
+        enable_turnovers: bool = true,
+        /// Chance of turnover as percentage (1-100)
+        turnover_chance: u8 = 3,
+    };
+
     /// Play handler specific error set
     pub const PlayHandlerError = error{
         InvalidPlayType,
@@ -262,6 +270,7 @@
         /// - `self`: Mutable reference to PlayHandler
         /// - `play_type`: Type of play to execute
         /// - `options`: Optional play parameters (yards_attempted, kick_distance, return_yards)
+        /// - `play_options`: Optional configuration for play processing behavior
         ///
         /// __Return__
         ///
@@ -270,7 +279,8 @@
             yards_attempted: ?i16 = null,
             kick_distance: ?u8 = null,
             return_yards: ?i16 = null,
-        }) PlayResult {
+        }, play_options: ?PlayOptions) PlayResult {
+            const opts = play_options orelse PlayOptions{};
             self.play_number += 1;
             
             var result = PlayResult{
@@ -286,15 +296,15 @@
             };
 
             switch (play_type) {
-                .pass_short => result = self.processPassPlay(play_type, 5, 75),
-                .pass_medium => result = self.processPassPlay(play_type, 15, 60),
-                .pass_deep => result = self.processPassPlay(play_type, 30, 35),
-                .screen_pass => result = self.processPassPlay(play_type, 3, 70),
+                .pass_short => result = self.processPassPlay(play_type, 5, 75, opts),
+                .pass_medium => result = self.processPassPlay(play_type, 15, 60, opts),
+                .pass_deep => result = self.processPassPlay(play_type, 30, 35, opts),
+                .screen_pass => result = self.processPassPlay(play_type, 3, 70, opts),
                 
-                .run_up_middle => result = self.processRunPlay(play_type, 4, 15),
-                .run_off_tackle => result = self.processRunPlay(play_type, 5, 20),
-                .run_sweep => result = self.processRunPlay(play_type, 3, 25),
-                .quarterback_sneak => result = self.processRunPlay(play_type, 1, 85),
+                .run_up_middle => result = self.processRunPlay(play_type, 4, 15, opts),
+                .run_off_tackle => result = self.processRunPlay(play_type, 5, 20, opts),
+                .run_sweep => result = self.processRunPlay(play_type, 3, 25, opts),
+                .quarterback_sneak => result = self.processRunPlay(play_type, 1, 85, opts),
                 
                 .punt => result = self.processPunt(options.kick_distance orelse 45),
                 .field_goal => result = self.processFieldGoal(options.kick_distance orelse 35),
@@ -448,7 +458,7 @@
         }
 
         /// Process a pass play
-        fn processPassPlay(self: *PlayHandler, play_type: PlayType, target_yards: i16, completion_pct: u8) PlayResult {
+        fn processPassPlay(self: *PlayHandler, play_type: PlayType, target_yards: i16, completion_pct: u8, play_options: PlayOptions) PlayResult {
             var result = PlayResult{
                 .play_type = play_type,
                 .yards_gained = 0,
@@ -490,7 +500,8 @@
                 result.time_consumed = 8;  // Incomplete pass stops clock quickly
                 
                 // Small chance of interception on incomplete passes
-                if (self.rng.intRangeAtMost(u8, 1, 100) <= 3) {
+                if (play_options.enable_turnovers and 
+                    self.rng.intRangeAtMost(u8, 1, 100) <= play_options.turnover_chance) {
                     result.is_turnover = true;
                     result.play_type = .interception;
                 }
@@ -500,7 +511,7 @@
         }
 
         /// Process a run play
-        fn processRunPlay(self: *PlayHandler, play_type: PlayType, avg_yards: i16, big_play_pct: u8) PlayResult {
+        fn processRunPlay(self: *PlayHandler, play_type: PlayType, avg_yards: i16, big_play_pct: u8, play_options: PlayOptions) PlayResult {
             var result = PlayResult{
                 .play_type = play_type,
                 .yards_gained = 0,
@@ -524,8 +535,9 @@
                 result.yards_gained = avg_yards + variance;
             }
 
-            // Check for fumble (1% chance)
-            if (self.rng.intRangeAtMost(u8, 1, 100) <= 1) {
+            // Check for fumble (configurable chance)
+            if (play_options.enable_turnovers and 
+                self.rng.intRangeAtMost(u8, 1, 100) <= @divFloor(play_options.turnover_chance, 3)) {
                 result.is_turnover = true;
                 result.play_type = .fumble;
                 result.yards_gained = 0;
@@ -1063,7 +1075,7 @@
     test "process pass play" {
         var handler = PlayHandler.init(12345);
 
-        const result = handler.processPlay(.pass_short, .{});
+        const result = handler.processPlay(.pass_short, .{}, null);
         try std.testing.expect(result.play_type == .pass_short);
         try std.testing.expect(result.time_consumed > 0);
     }
@@ -1071,7 +1083,7 @@
     test "process run play" {
         var handler = PlayHandler.init(12345);
 
-        const result = handler.processPlay(.run_up_middle, .{});
+        const result = handler.processPlay(.run_up_middle, .{}, null);
         try std.testing.expect(result.play_type == .run_up_middle);
         try std.testing.expect(result.time_consumed > 0);
     }
@@ -1080,7 +1092,7 @@
         var handler = PlayHandler.init(12345);
         const initial_score = handler.game_state.away_score;
 
-        _ = handler.processPlay(.field_goal, .{ .kick_distance = 30 });
+        _ = handler.processPlay(.field_goal, .{ .kick_distance = 30 }, null);
 
         // Score might or might not increase based on random success
         try std.testing.expect(handler.game_state.away_score >= initial_score);

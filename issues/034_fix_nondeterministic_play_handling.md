@@ -108,5 +108,40 @@ Bug Fix / Test Infrastructure
 
 ---
 *Created: 2025-08-18*
-*Status: Not Started*
+*Status: ✅ RESOLVED*
 *Found during: Session review after Issue #032 resolution*
+
+## Resolution Summary
+
+Successfully fixed non-deterministic play handling by implementing a comprehensive solution:
+
+### Changes Made:
+
+1. **PlayHandler Enhancements**:
+   - Added `PlayOptions` struct to control random events (turnovers)
+   - Modified `processPassPlay()` and `processRunPlay()` to respect `enable_turnovers` flag
+   - Default behavior preserves randomness; tests can disable for determinism
+
+2. **GameClock Improvements**:
+   - Added `test_seed` field and `initWithSeed()` function for deterministic testing
+   - Updated `processPlay()` methods to use test seed when available
+   - Automatically disables turnovers when test seed is set
+
+3. **Test Fixes**:
+   - Updated failing tests to use `initWithSeed()` for deterministic behavior
+   - Fixed "handles all play types" test to disable turnovers
+   - Added new tests to verify deterministic behavior
+
+### Verification:
+- ✅ All tests pass consistently (verified with 5 consecutive runs)
+- ✅ Play types are preserved when turnovers are disabled
+- ✅ Identical seeds produce identical results
+- ✅ Backward compatibility maintained for existing code
+
+### Technical Details:
+- PlayOptions defaults enable realistic gameplay (turnovers on)
+- Test mode automatically detected via test_seed presence
+- Clean separation between test and production behavior
+- MCS-compliant implementation throughout
+
+*Resolution completed: 2025-08-19*

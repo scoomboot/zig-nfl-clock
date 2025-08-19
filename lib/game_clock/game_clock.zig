@@ -498,6 +498,7 @@
     pub const PlayResult = PlayHandler.PlayResult;
     pub const PlayStatistics = PlayHandler.PlayStatistics;
     pub const PossessionTeam = PlayHandler.PossessionTeam;
+    pub const PlayOptions = PlayHandler.PlayOptions;
 
     /// Import RulesEngine for clock management
     const RulesEngine = @import("utils/rules_engine/rules_engine.zig").RulesEngine;
@@ -518,6 +519,7 @@
         play_clock_duration: PlayClockDuration,
         clock_speed: ClockSpeed,
         custom_speed_multiplier: u32,
+        test_seed: ?u64,
 
         /// Initialize a new ClockBuilder with default values.
         ///
@@ -539,6 +541,7 @@
                 .play_clock_duration = .normal_40,
                 .clock_speed = .real_time,
                 .custom_speed_multiplier = 1,
+                .test_seed = null,
             };
         }
 
@@ -644,6 +647,23 @@
             self.custom_speed_multiplier = @max(1, multiplier);
             return self;
         }
+        
+        /// Set a test seed for deterministic testing.
+        ///
+        /// Configures a seed for RNG to enable deterministic test behavior.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to ClockBuilder
+        /// - `seed`: Seed value for RNG
+        ///
+        /// __Return__
+        ///
+        /// - Reference to self for method chaining
+        pub fn withTestSeed(self: *ClockBuilder, seed: u64) *ClockBuilder {
+            self.test_seed = seed;
+            return self;
+        }
 
         /// Build the final GameClock instance.
         ///
@@ -676,6 +696,7 @@
                 .mutex = std.Thread.Mutex{},
                 .allocator = self.allocator,
                 .modification_count = 0,
+                .test_seed = self.test_seed,
             };
         }
     };
@@ -726,6 +747,9 @@
         
         /// Modification count for tracking changes
         modification_count: u32,
+        
+        /// Optional seed for deterministic testing (null uses timestamp)
+        test_seed: ?u64,
 
         /// Initialize a new game clock.
         ///
@@ -739,6 +763,22 @@
         ///
         /// - Initialized GameClock instance
         pub fn init(allocator: Allocator) GameClock {
+            return initWithSeed(allocator, null);
+        }
+        
+        /// Initialize a new game clock with optional seed for testing.
+        ///
+        /// Creates a new game clock with default NFL settings and optional seed.
+        ///
+        /// __Parameters__
+        ///
+        /// - `allocator`: Memory allocator for dynamic allocations
+        /// - `seed`: Optional seed for deterministic testing (null uses timestamp)
+        ///
+        /// __Return__
+        ///
+        /// - Initialized GameClock instance
+        pub fn initWithSeed(allocator: Allocator, seed: ?u64) GameClock {
             return GameClock{
                 .time_remaining = QUARTER_LENGTH_SECONDS,
                 .quarter = .Q1,
@@ -755,6 +795,7 @@
                 .mutex = std.Thread.Mutex{},
                 .allocator = allocator,
                 .modification_count = 0,
+                .test_seed = seed,
             };
         }
 
@@ -771,6 +812,21 @@
         /// - ClockBuilder instance for fluent configuration
         pub fn builder(allocator: Allocator) ClockBuilder {
             return ClockBuilder.init(allocator);
+        }
+        
+        /// Get seed for RNG (uses test_seed if set, otherwise timestamp).
+        ///
+        /// Provides deterministic seed for testing or timestamp for production.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Const reference to GameClock
+        ///
+        /// __Return__
+        ///
+        /// - Seed value for RNG initialization
+        fn getSeed(self: *const GameClock) u64 {
+            return self.test_seed orelse @intCast(std.time.timestamp());
         }
 
         /// Start the game clock.
@@ -2275,14 +2331,20 @@
                 .time_remaining = self.time_remaining,
                 .play_clock = self.play_clock,
                 .clock_running = self.is_running,
-            }, @intCast(std.time.timestamp()));
+            }, self.getSeed());
             
             // Process the play through PlayHandler
+            // Disable turnovers when using test seed for deterministic behavior
+            const play_options = if (self.test_seed) |_|
+                PlayOptions{ .enable_turnovers = false }
+            else
+                PlayOptions{ .enable_turnovers = true };
+            
             var result = play_handler.processPlay(play.type, .{
                 .yards_attempted = play.yards_attempted,
                 .kick_distance = play.kick_distance,
                 .return_yards = play.return_yards,
-            });
+            }, play_options);
             
             // Initialize RulesEngine with current game situation
             var rules_engine = RulesEngine.initWithSituation(.{
@@ -2357,14 +2419,20 @@
                 .time_remaining = self.time_remaining,
                 .play_clock = self.play_clock,
                 .clock_running = self.is_running,
-            }, @intCast(std.time.timestamp()));
+            }, self.getSeed());
             
             // Process the primary play
+            // Disable turnovers when using test seed for deterministic behavior
+            const play_options = if (self.test_seed) |_|
+                PlayOptions{ .enable_turnovers = false }
+            else
+                PlayOptions{ .enable_turnovers = true };
+            
             var result = play_handler.processPlay(context.play.type, .{
                 .yards_attempted = context.play.yards_attempted,
                 .kick_distance = context.play.kick_distance,
                 .return_yards = context.play.return_yards,
-            });
+            }, play_options);
             
             // Initialize RulesEngine with comprehensive game situation
             var rules_engine = RulesEngine.initWithSituation(.{
@@ -3156,7 +3224,8 @@
 
     test "unit: GameClock: processPlay basic functionality" {
         const allocator = testing.allocator;
-        var clock = GameClock.init(allocator);
+        // Initialize with test seed for deterministic behavior
+        var clock = GameClock.initWithSeed(allocator, 12345);
         
         // Start the game
         try clock.start();
@@ -3401,7 +3470,8 @@
 
     test "integration: GameClock: processPlay API examples" {
         const allocator = testing.allocator;
-        var clock = GameClock.init(allocator);
+        // Initialize with test seed for deterministic behavior
+        var clock = GameClock.initWithSeed(allocator, 12345);
         
         try clock.start();
         
@@ -3414,6 +3484,25 @@
         const result2 = try clock.processPlay(.{ .type = .run_up_middle, .complete = true, .yards_attempted = 3 });
         // Note: PlayHandler may modify play type during processing
         try testing.expect(result2.yards_gained >= 0); // Should have some yardage or none
+    }
+
+    test "unit: GameClock: deterministic with test seed" {
+        const allocator = testing.allocator;
+        var clock1 = GameClock.initWithSeed(allocator, 99999);
+        var clock2 = GameClock.initWithSeed(allocator, 99999);
+        
+        try clock1.start();
+        try clock2.start();
+        
+        const play = Play{ .type = .pass_short, .complete = false };
+        const result1 = try clock1.processPlay(play);
+        const result2 = try clock2.processPlay(play);
+        
+        // Both clocks with same seed should produce identical results
+        try testing.expectEqual(result1.play_type, result2.play_type);
+        try testing.expectEqual(result1.yards_gained, result2.yards_gained);
+        try testing.expectEqual(result1.is_turnover, result2.is_turnover);
+        try testing.expectEqual(result1.pass_completed, result2.pass_completed);
     }
 
     test "integration: GameClock: processPlayWithContext API examples" {

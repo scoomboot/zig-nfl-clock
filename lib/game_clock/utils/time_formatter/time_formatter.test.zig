@@ -850,13 +850,29 @@
             value: u32,
             format: TimeFormat,
             should_fail: bool,
+            description: []const u8,
         }{
-            // Extremely large time value
-            .{ .value = 999999999, .format = .standard, .should_fail = false }, // Should handle gracefully
-            // Zero time
-            .{ .value = 0, .format = .standard, .should_fail = false }, // Valid
-            // Max reasonable game time
-            .{ .value = 14400, .format = .full, .should_fail = false }, // 4 hours
+            // Boundary testing for MAX_GAME_TIME (86400 seconds = 24 hours)
+            .{ .value = 86399, .format = .full, .should_fail = false, .description = "Just below MAX_GAME_TIME" },
+            .{ .value = 86400, .format = .full, .should_fail = false, .description = "Exactly at MAX_GAME_TIME" },
+            .{ .value = 86401, .format = .full, .should_fail = false, .description = "Just above MAX_GAME_TIME" },
+            
+            // Boundary testing for MAX_REASONABLE_TIME (604800 seconds = 1 week)
+            .{ .value = 604799, .format = .full, .should_fail = false, .description = "Just below MAX_REASONABLE_TIME" },
+            .{ .value = 604800, .format = .full, .should_fail = false, .description = "Exactly at MAX_REASONABLE_TIME" },
+            .{ .value = 604801, .format = .full, .should_fail = true, .description = "Just above MAX_REASONABLE_TIME - should fail" },
+            
+            // Edge cases
+            .{ .value = 0, .format = .standard, .should_fail = false, .description = "Zero time - valid" },
+            .{ .value = 1, .format = .standard, .should_fail = false, .description = "Minimum non-zero time" },
+            .{ .value = 900, .format = .standard, .should_fail = false, .description = "Standard quarter length" },
+            .{ .value = 3600, .format = .full, .should_fail = false, .description = "One hour" },
+            .{ .value = 14400, .format = .full, .should_fail = false, .description = "4 hours - typical maximum game" },
+            .{ .value = 18000, .format = .full, .should_fail = false, .description = "DISPLAY_WARNING_TIME boundary" },
+            .{ .value = 100000, .format = .full, .should_fail = false, .description = "Between MAX_GAME_TIME and MAX_REASONABLE_TIME" },
+            .{ .value = 999999, .format = .full, .should_fail = true, .description = "Far exceeds MAX_REASONABLE_TIME" },
+            .{ .value = 999999999, .format = .standard, .should_fail = true, .description = "Extremely large value" },
+            .{ .value = 4294967295, .format = .standard, .should_fail = true, .description = "Max u32 value" },
         };
         
         for (invalid_times) |tc| {
@@ -936,20 +952,58 @@
     test "unit: TimeFormatter: validateTimeValue catches edge cases" {
         var formatter = TimeFormatter.init(allocator);
         
-        // Test various time values
+        // Test various time values with comprehensive boundary testing
         const test_values = [_]struct {
             value: u32,
+            is_overtime: bool,
             expected_valid: bool,
+            description: []const u8,
         }{
-            .{ .value = 0, .expected_valid = true }, // Zero is valid
-            .{ .value = 900, .expected_valid = true }, // Quarter length
-            .{ .value = 3600, .expected_valid = true }, // 1 hour
-            .{ .value = 86400, .expected_valid = true }, // 24 hours
-            .{ .value = 4294967295, .expected_valid = true }, // Max u32
+            // Normal range (0 to MAX_GAME_TIME)
+            .{ .value = 0, .is_overtime = false, .expected_valid = true, .description = "Zero is valid" },
+            .{ .value = 1, .is_overtime = false, .expected_valid = true, .description = "Minimum positive value" },
+            .{ .value = 900, .is_overtime = false, .expected_valid = true, .description = "Quarter length" },
+            .{ .value = 1800, .is_overtime = false, .expected_valid = true, .description = "Half length" },
+            .{ .value = 3600, .is_overtime = false, .expected_valid = true, .description = "1 hour" },
+            .{ .value = 7200, .is_overtime = false, .expected_valid = true, .description = "2 hours" },
+            .{ .value = 14400, .is_overtime = false, .expected_valid = true, .description = "4 hours - typical max game" },
+            
+            // DISPLAY_WARNING_TIME boundary (18000 seconds = 5 hours)
+            .{ .value = 17999, .is_overtime = false, .expected_valid = true, .description = "Just below DISPLAY_WARNING_TIME" },
+            .{ .value = 18000, .is_overtime = false, .expected_valid = true, .description = "Exactly at DISPLAY_WARNING_TIME" },
+            .{ .value = 18001, .is_overtime = false, .expected_valid = true, .description = "Just above DISPLAY_WARNING_TIME" },
+            
+            // MAX_GAME_TIME boundary (86400 seconds = 24 hours)
+            .{ .value = 86399, .is_overtime = false, .expected_valid = true, .description = "Just below MAX_GAME_TIME" },
+            .{ .value = 86400, .is_overtime = false, .expected_valid = true, .description = "Exactly at MAX_GAME_TIME" },
+            .{ .value = 86401, .is_overtime = false, .expected_valid = true, .description = "Just above MAX_GAME_TIME" },
+            
+            // Between MAX_GAME_TIME and MAX_REASONABLE_TIME
+            .{ .value = 100000, .is_overtime = false, .expected_valid = true, .description = "~27.8 hours" },
+            .{ .value = 172800, .is_overtime = false, .expected_valid = true, .description = "2 days" },
+            .{ .value = 259200, .is_overtime = false, .expected_valid = true, .description = "3 days" },
+            .{ .value = 432000, .is_overtime = false, .expected_valid = true, .description = "5 days" },
+            
+            // MAX_REASONABLE_TIME boundary (604800 seconds = 1 week)
+            .{ .value = 604799, .is_overtime = false, .expected_valid = true, .description = "Just below MAX_REASONABLE_TIME" },
+            .{ .value = 604800, .is_overtime = false, .expected_valid = true, .description = "Exactly at MAX_REASONABLE_TIME" },
+            .{ .value = 604801, .is_overtime = false, .expected_valid = false, .description = "Just above MAX_REASONABLE_TIME" },
+            
+            // Far beyond MAX_REASONABLE_TIME
+            .{ .value = 700000, .is_overtime = false, .expected_valid = false, .description = "~8.1 days" },
+            .{ .value = 1000000, .is_overtime = false, .expected_valid = false, .description = "~11.6 days" },
+            .{ .value = 10000000, .is_overtime = false, .expected_valid = false, .description = "~115.7 days" },
+            .{ .value = 4294967295, .is_overtime = false, .expected_valid = false, .description = "Max u32 value" },
+            
+            // Test with overtime flag (should not affect validation)
+            .{ .value = 600, .is_overtime = true, .expected_valid = true, .description = "OT period length" },
+            .{ .value = 86400, .is_overtime = true, .expected_valid = true, .description = "MAX_GAME_TIME in OT" },
+            .{ .value = 604800, .is_overtime = true, .expected_valid = true, .description = "MAX_REASONABLE_TIME in OT" },
+            .{ .value = 604801, .is_overtime = true, .expected_valid = false, .description = "Over MAX_REASONABLE_TIME in OT" },
         };
         
         for (test_values) |tv| {
-            const result = formatter.validateTimeValue(tv.value, tv.value <= 600);
+            const result = formatter.validateTimeValue(tv.value, tv.is_overtime);
             if (tv.expected_valid) {
                 try result;
             } else {
@@ -1032,6 +1086,45 @@
                 const fallback = try formatter.formatGameTime(0, .standard);
                 try testing.expectEqualStrings("00:00", fallback);
             }
+        }
+    }
+
+    test "integration: TimeFormatter: boundary values format correctly" {
+        var formatter = TimeFormatter.init(allocator);
+        
+        // Test formatting at all critical boundaries
+        const boundary_tests = [_]struct {
+            seconds: u32,
+            format: TimeFormat,
+            expected_pattern: []const u8,
+            description: []const u8,
+        }{
+            // MAX_GAME_TIME boundary formatting
+            .{ .seconds = 86399, .format = .full, .expected_pattern = "23:59:59", .description = "Just below MAX_GAME_TIME" },
+            .{ .seconds = 86400, .format = .full, .expected_pattern = "24:00:00", .description = "Exactly MAX_GAME_TIME" },
+            .{ .seconds = 86401, .format = .full, .expected_pattern = "24:00:01", .description = "Just above MAX_GAME_TIME" },
+            
+            // DISPLAY_WARNING_TIME boundary formatting
+            .{ .seconds = 17999, .format = .full, .expected_pattern = "04:59:59", .description = "Just below DISPLAY_WARNING_TIME" },
+            .{ .seconds = 18000, .format = .full, .expected_pattern = "05:00:00", .description = "Exactly DISPLAY_WARNING_TIME" },
+            .{ .seconds = 18001, .format = .full, .expected_pattern = "05:00:01", .description = "Just above DISPLAY_WARNING_TIME" },
+            
+            // Very large values still within MAX_REASONABLE_TIME
+            .{ .seconds = 604799, .format = .full, .expected_pattern = "167:59:59", .description = "Just below MAX_REASONABLE_TIME" },
+            .{ .seconds = 604800, .format = .full, .expected_pattern = "168:00:00", .description = "Exactly MAX_REASONABLE_TIME" },
+            
+            // Standard format tests at boundaries
+            .{ .seconds = 86400, .format = .standard, .expected_pattern = "1440:00", .description = "MAX_GAME_TIME in standard format" },
+            .{ .seconds = 604800, .format = .standard, .expected_pattern = "10080:00", .description = "MAX_REASONABLE_TIME in standard format" },
+        };
+        
+        for (boundary_tests) |bt| {
+            // First validate the value
+            try formatter.validateTimeValue(bt.seconds, false);
+            
+            // Then format it
+            const result = try formatter.formatGameTime(bt.seconds, bt.format);
+            try testing.expectEqualStrings(bt.expected_pattern, result);
         }
     }
 
@@ -1173,6 +1266,88 @@
                     false
                 );
                 try testing.expect(context_result.len > 0);
+            }
+        }
+    }
+
+    test "unit: TimeFormatter: validateTimeValue respects MAX_REASONABLE_TIME strictly" {
+        var formatter = TimeFormatter.init(allocator);
+        
+        // Test that MAX_REASONABLE_TIME constant is correctly enforced
+        try testing.expectEqual(@as(u32, 604800), TimeFormatter.MAX_REASONABLE_TIME);
+        try testing.expectEqual(@as(u32, 86400), TimeFormatter.MAX_GAME_TIME);
+        try testing.expectEqual(@as(u32, 18000), TimeFormatter.DISPLAY_WARNING_TIME);
+        
+        // Test precise boundary enforcement
+        const boundary_values = [_]u32{
+            604798, 604799, 604800, // At boundary
+            604801, 604802, 604803, // Just over boundary
+        };
+        
+        for (boundary_values) |value| {
+            const result = formatter.validateTimeValue(value, false);
+            if (value <= TimeFormatter.MAX_REASONABLE_TIME) {
+                try result; // Should succeed
+            } else {
+                try testing.expectError(error.InvalidTimeValue, result);
+            }
+        }
+        
+        // Test that overtime flag doesn't change validation
+        for (boundary_values) |value| {
+            const result_regular = formatter.validateTimeValue(value, false);
+            const result_overtime = formatter.validateTimeValue(value, true);
+            
+            // Both should have same result
+            if (value <= TimeFormatter.MAX_REASONABLE_TIME) {
+                try result_regular;
+                try result_overtime;
+            } else {
+                try testing.expectError(error.InvalidTimeValue, result_regular);
+                try testing.expectError(error.InvalidTimeValue, result_overtime);
+            }
+        }
+    }
+
+    test "integration: TimeFormatter: validates and formats boundary cases correctly" {
+        var formatter = TimeFormatter.init(allocator);
+        
+        // Test complete flow: validate -> format -> verify
+        const test_cases = [_]struct {
+            value: u32,
+            should_validate: bool,
+            format: TimeFormat,
+        }{
+            .{ .value = 86399, .should_validate = true, .format = .full },
+            .{ .value = 86400, .should_validate = true, .format = .full },
+            .{ .value = 86401, .should_validate = true, .format = .full },
+            .{ .value = 604799, .should_validate = true, .format = .full },
+            .{ .value = 604800, .should_validate = true, .format = .full },
+            .{ .value = 604801, .should_validate = false, .format = .full },
+            .{ .value = 1000000, .should_validate = false, .format = .full },
+        };
+        
+        for (test_cases) |tc| {
+            const validation_result = formatter.validateTimeValue(tc.value, false);
+            
+            if (tc.should_validate) {
+                // Validation should pass
+                try validation_result;
+                
+                // Formatting should also work
+                const formatted = try formatter.formatGameTime(tc.value, tc.format);
+                try testing.expect(formatted.len > 0);
+                
+                // Verify format contains colons
+                try testing.expect(std.mem.indexOf(u8, formatted, ":") != null);
+            } else {
+                // Validation should fail
+                try testing.expectError(error.InvalidTimeValue, validation_result);
+                
+                // Should not attempt to format invalid values
+                // Instead, use a fallback value
+                const fallback = try formatter.formatGameTime(0, tc.format);
+                try testing.expectEqualStrings("00:00:00", fallback);
             }
         }
     }

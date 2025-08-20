@@ -79,6 +79,14 @@
         thresholds: WarningThresholds,
         buffer: [128]u8,
 
+        /// Time boundary constants for validation
+        /// MAX_GAME_TIME: 24 hours (86400 seconds) - for legitimate long games with delays
+        pub const MAX_GAME_TIME: u32 = 86400;
+        /// MAX_REASONABLE_TIME: 1 week (604800 seconds) - absolute maximum
+        pub const MAX_REASONABLE_TIME: u32 = 604800;
+        /// DISPLAY_WARNING_TIME: 5 hours (18000 seconds) - when display might have issues
+        pub const DISPLAY_WARNING_TIME: u32 = 18000;
+
         /// Initialize a new time formatter.
         ///
         /// Creates a formatter with default warning thresholds.
@@ -367,6 +375,10 @@
         /// Validate time value.
         ///
         /// Ensures the time value is within valid ranges.
+        /// Implements tiered validation:
+        /// - 0 to MAX_GAME_TIME: Normal range
+        /// - MAX_GAME_TIME to MAX_REASONABLE_TIME: Accepted with warning potential
+        /// - Above MAX_REASONABLE_TIME: Rejected
         ///
         /// __Parameters__
         ///
@@ -380,14 +392,24 @@
         ///
         /// __Errors__
         ///
-        /// - `TimeFormatterError.InvalidTimeValue`: If time value is invalid
+        /// - `TimeFormatterError.InvalidTimeValue`: If time value exceeds MAX_REASONABLE_TIME
         pub fn validateTimeValue(self: *const TimeFormatter, seconds: u32, is_overtime: bool) TimeFormatterError!void {
             _ = self;
-            _ = seconds;
             _ = is_overtime;
 
-            // All u32 values are valid for formatting purposes
-            // The formatter can handle any time value
+            // Reject values over MAX_REASONABLE_TIME (1 week)
+            if (seconds > TimeFormatter.MAX_REASONABLE_TIME) {
+                return TimeFormatterError.InvalidTimeValue;
+            }
+
+            // Values between MAX_GAME_TIME and MAX_REASONABLE_TIME are accepted
+            // but could trigger warnings in display logic
+            if (seconds > TimeFormatter.MAX_GAME_TIME) {
+                // Could log warning here if logging system is available
+                // For now, just accept the value
+            }
+
+            // Normal range (0 to MAX_GAME_TIME) - accepted without concerns
         }
 
         /// Validate thresholds.

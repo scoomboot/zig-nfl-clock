@@ -2,7 +2,8 @@
 
 ## Current Project Status
 
-### ✅ Recently Completed (August 17-19, 2025)
+### ✅ Recently Completed (August 17-20, 2025)
+- ✅ [#036](036_restore_reasonable_time_validation.md): Restore reasonable time validation boundaries - Tiered validation implemented *(Resolved 2025-08-20)*
 - ✅ [#035](035_implement_untimed_downs.md): Implement untimed downs for end-of-half scenarios - NFL Rule 4, Section 8 *(Resolved 2025-08-19)*
 - ✅ [#034](034_fix_nondeterministic_play_handling.md): Fix non-deterministic play handling - Tests now deterministic *(Resolved 2025-08-19)*
 - ✅ [#033](033_validation_logic_fixes.md): Fix validation logic errors - All 12+ test failures resolved *(Resolved 2025-08-18)*
@@ -60,9 +61,10 @@
 - ✅ [#033](033_validation_logic_fixes.md): ~~Fix validation logic errors~~ **RESOLVED** - All 12+ test failures fixed *(2025-08-18)*
 - ✅ [#034](034_fix_nondeterministic_play_handling.md): ~~Fix non-deterministic play type handling~~ **RESOLVED** - Tests now deterministic *(2025-08-19)*
 - ✅ [#035](035_implement_untimed_downs.md): ~~Implement untimed downs~~ **RESOLVED** - NFL Rule 4, Section 8 implemented *(2025-08-19)*
+- ✅ [#036](036_restore_reasonable_time_validation.md): ~~Restore time validation boundaries~~ **RESOLVED** - Tiered validation restored *(2025-08-20)*
 
 ### 🟡 Follow-up Issues (Medium Priority)
-- 🟡 [#036](036_restore_reasonable_time_validation.md): Restore reasonable time validation boundaries *(Created 2025-08-18)*
+*(Currently none - all critical and follow-up issues resolved)*
 
 ### 🔵 Low Priority / Future (Cleanup & Optimization)
 - 🔵 [#020](020_dependency_analysis.md): **OBSOLETE** - Dependencies already optimized via enhancement approach

@@ -58,7 +58,7 @@ Every `.zig` file MUST follow this exact structure:
 //
 // repo   : https://github.com/zig-nfl-clock
 // docs   : https://zig-nfl-clock.github.io/docs/path
-// author : https://github.com/maysara-elshewehy
+// author : https://github.com/scoomboot
 //
 // Vibe coded by Scoom.
 

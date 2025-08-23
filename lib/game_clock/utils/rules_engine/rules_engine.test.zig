@@ -27,8 +27,6 @@
     const getPlayDuration = @import("rules_engine.zig").getPlayDuration;
 
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
-
 // ╔══════════════════════════════════════ INIT ═══════════════════════════════════════╗
 
     /// Test scenario for play outcomes
@@ -51,7 +49,7 @@
         expected_stop: bool,
     };
 
-    // ┌──────────────────────────── Test Helpers ────────────────────────────┐
+    // ┌────────────────────────── Test Helpers ──────────────────────────┐
 
     /// Creates a RulesEngine with default test configuration
     fn createTestRulesEngine() RulesEngine {
@@ -314,13 +312,11 @@
         };
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
-
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
+    // └──────────────────────────────────────────────────────────────────┘
 
 // ╔══════════════════════════════════════ TEST ═══════════════════════════════════════╗
 
-    // ┌──────────────────────────── Unit Tests ────────────────────────────┐
+    // ┌─────────────────────────── Unit Tests ───────────────────────────┐
 
     test "unit: RulesEngine: initializes with default values" {
         const engine = RulesEngine.init();
@@ -511,9 +507,9 @@
         try testing.expectEqual(@as(u32, 4), hurry_run);
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
+    // └──────────────────────────────────────────────────────────────────┘
 
-    // ┌──────────────────────────── Integration Tests ────────────────────────────┐
+    // ┌─────────────────────── Integration Tests ────────────────────────┐
 
     test "integration: RulesEngine: handles quarter transitions" {
         var engine = RulesEngine.init();
@@ -636,9 +632,9 @@
         try testing.expectEqual(@as(u8, 10), engine.situation.distance);
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
+    // └──────────────────────────────────────────────────────────────────┘
 
-    // ┌──────────────────────────── End-to-End Tests ────────────────────────────┐
+    // ┌──────────────────────── End-to-End Tests ────────────────────────┐
 
     test "e2e: RulesEngine: simulates two-minute drill" {
         var engine = RulesEngine.init();
@@ -734,9 +730,9 @@
         try testing.expectEqual(@as(u8, 10), engine.situation.distance);
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
+    // └──────────────────────────────────────────────────────────────────┘
 
-    // ┌──────────────────────────── Scenario Tests ────────────────────────────┐
+    // ┌───────────────────────── Scenario Tests ─────────────────────────┐
 
     test "scenario: RulesEngine: manages complete two-minute drill sequence" {
         var engine = RulesEngine.init();
@@ -898,9 +894,9 @@
         }
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
+    // └──────────────────────────────────────────────────────────────────┘
 
-    // ┌──────────────────────────── Performance Tests ────────────────────────────┐
+    // ┌─────────────────────── Performance Tests ────────────────────────┐
 
     test "performance: RulesEngine: processes plays quickly" {
         var engine = RulesEngine.init();
@@ -956,9 +952,9 @@
         try testing.expect(elapsed < 50);
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
+    // └──────────────────────────────────────────────────────────────────┘
 
-    // ┌──────────────────────────── Error Handling Tests ────────────────────────────┐
+    // ┌────────────────────── Error Handling Tests ──────────────────────┐
 
     test "unit: RulesEngineError: InvalidSituation detection" {
         // Test invalid situation configurations
@@ -1299,9 +1295,9 @@
         try engine.validateSituation(engine.situation);
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
+    // └──────────────────────────────────────────────────────────────────┘
 
-    // ┌──────────────────────────── Stress Tests ────────────────────────────┐
+    // ┌────────────────────────── Stress Tests ──────────────────────────┐
 
     test "stress: RulesEngine: handles all play outcomes" {
         var engine = RulesEngine.init();
@@ -1553,7 +1549,7 @@
         try testing.expect(!engine.situation.untimed_down_available);
     }
 
-    // ┌──────────────────────────── Untimed Down Tests ────────────────────────────┐
+    // ┌─────────────────────── Untimed Down Tests ───────────────────────┐
 
     test "unit: RulesEngine: defensive holding at end of 2nd quarter grants untimed down" {
         var engine = RulesEngine.init();
@@ -1935,6 +1931,197 @@
         try testing.expect(decision.restart_on_snap);
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
+    // └──────────────────────────────────────────────────────────────────┘
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
+    // ┌────────────────────── PLAYOFF RULES TESTS ───────────────────────┐
+
+    test "unit: GameSituation: defaults to playoff_rules false" {
+        const situation = GameSituation{
+            .quarter = 1,
+            .time_remaining = 900,
+            .down = 1,
+            .distance = 10,
+            .is_overtime = false,
+            .home_timeouts = 3,
+            .away_timeouts = 3,
+            .possession_team = .home,
+            .is_two_minute_drill = false,
+        };
+        
+        try testing.expect(!situation.playoff_rules);
+    }
+
+    test "unit: RulesEngine: initializes with playoff_rules false" {
+        const engine = RulesEngine.init();
+        try testing.expect(!engine.situation.playoff_rules);
+    }
+
+    test "unit: RulesEngine: playoff overtime gets 2 timeouts per team" {
+        var engine = RulesEngine.init();
+        
+        // Set up playoff overtime scenario
+        engine.situation.quarter = 5;
+        engine.situation.is_overtime = true;
+        engine.situation.playoff_rules = true;
+        
+        // Advance to overtime - should get 2 timeouts each in playoffs
+        engine.advanceQuarter();
+        
+        // In playoffs, each team gets 2 timeouts per OT period
+        try testing.expectEqual(@as(u8, 2), engine.situation.home_timeouts);
+        try testing.expectEqual(@as(u8, 2), engine.situation.away_timeouts);
+    }
+
+    test "unit: RulesEngine: regular season overtime timeout allocation" {
+        var engine = RulesEngine.init();
+        
+        // Set up end of regulation - regular season
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 0;
+        engine.situation.is_overtime = false;
+        engine.situation.playoff_rules = false;
+        engine.situation.home_timeouts = 0; // Used all timeouts in regulation
+        engine.situation.away_timeouts = 1; // Has one left
+        
+        // Advance to overtime
+        engine.advanceQuarter();
+        
+        // In regular season OT, the implementation doesn't reset timeouts
+        // Teams keep what they had (implementation detail)
+        try testing.expect(engine.situation.is_overtime);
+        try testing.expectEqual(@as(u32, 600), engine.situation.time_remaining);
+    }
+
+    test "unit: RulesEngine: playoff games cannot end in tie" {
+        var engine = RulesEngine.init();
+        
+        // Set up playoff overtime with time expired
+        engine.situation.is_overtime = true;
+        engine.situation.playoff_rules = true;
+        engine.situation.time_remaining = 0;
+        
+        // In playoffs, game never ends in tie - continues until winner
+        try testing.expect(!engine.isGameOver());
+        
+        // Regular season can end in tie after OT
+        engine.situation.playoff_rules = false;
+        try testing.expect(engine.isGameOver());
+    }
+
+    test "integration: RulesEngine: playoff overtime quarter advancement" {
+        var engine = RulesEngine.init();
+        
+        // Set up end of regulation in playoffs
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 0;
+        engine.situation.playoff_rules = true;
+        
+        // Advance to playoff overtime
+        engine.advanceQuarter();
+        
+        try testing.expect(engine.situation.is_overtime);
+        // RulesEngine implements 15-minute playoff OT directly
+        try testing.expectEqual(@as(u32, 900), engine.situation.time_remaining);
+        try testing.expectEqual(@as(u8, 2), engine.situation.home_timeouts);
+        try testing.expectEqual(@as(u8, 2), engine.situation.away_timeouts);
+    }
+
+    test "scenario: RulesEngine: complete playoff overtime scenario" {
+        var engine = RulesEngine.init();
+        
+        // Set up playoff game entering overtime
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 5;
+        engine.situation.playoff_rules = true;
+        engine.situation.possession_team = .home;
+        
+        // Time expires in regulation
+        engine.situation.time_remaining = 0;
+        
+        // Advance to playoff overtime
+        engine.advanceQuarter();
+        
+        try testing.expect(engine.situation.is_overtime);
+        try testing.expect(engine.situation.playoff_rules);
+        try testing.expectEqual(@as(u8, 2), engine.situation.home_timeouts);
+        
+        // First possession in playoff OT
+        engine.situation.possession_team = .away;
+        
+        // Field goal on first possession (modified sudden death rules apply)
+        const fg_decision = engine.processPlay(.field_goal_attempt);
+        try testing.expectEqual(ClockStopReason.score, fg_decision.stop_reason);
+        
+        // In playoff modified sudden death, game continues after FG on first possession
+        // (Home team gets chance to possess)
+        engine.newPossession(.home);
+        
+        // If time expires in first OT, advance to second OT in playoffs
+        engine.situation.time_remaining = 0;
+        try testing.expect(!engine.isGameOver()); // Playoffs continue
+        
+        // Advance to second overtime period
+        engine.advanceQuarter();
+        try testing.expect(engine.situation.is_overtime);
+        try testing.expectEqual(@as(u8, 2), engine.situation.home_timeouts); // Reset for new OT
+    }
+
+    test "unit: RulesEngine: playoff_rules passed correctly to GameSituation" {
+        // Test with playoff rules enabled
+        const playoff_situation = GameSituation{
+            .quarter = 1,
+            .time_remaining = 900,
+            .down = 1,
+            .distance = 10,
+            .is_overtime = false,
+            .home_timeouts = 3,
+            .away_timeouts = 3,
+            .possession_team = .home,
+            .is_two_minute_drill = false,
+            .playoff_rules = true,
+        };
+        
+        var engine = RulesEngine.initWithSituation(playoff_situation);
+        try testing.expect(engine.situation.playoff_rules);
+        
+        // Test with playoff rules disabled
+        var regular_situation = playoff_situation;
+        regular_situation.playoff_rules = false;
+        
+        engine = RulesEngine.initWithSituation(regular_situation);
+        try testing.expect(!engine.situation.playoff_rules);
+    }
+
+    test "e2e: RulesEngine: complete playoff game with multiple overtimes" {
+        var engine = RulesEngine.init();
+        
+        // Configure for playoff game
+        engine.situation.playoff_rules = true;
+        engine.situation.quarter = 4;
+        engine.situation.time_remaining = 0; // End of regulation
+        engine.situation.possession_team = .home;
+        engine.situation.is_overtime = false;
+        
+        // In playoffs, game never ends in tie  
+        try testing.expect(!engine.isGameOver());
+        
+        // First overtime
+        engine.advanceQuarter();
+        try testing.expect(engine.situation.is_overtime);
+        try testing.expectEqual(@as(u32, 900), engine.situation.time_remaining); // 15 min OT
+        try testing.expectEqual(@as(u8, 2), engine.situation.home_timeouts);
+        
+        // Simulate entire first OT without score
+        engine.situation.time_remaining = 0;
+        try testing.expect(!engine.isGameOver()); // Continue to next OT
+        
+        // Score in OT ends game
+        const td_decision = engine.processPlay(.touchdown);
+        try testing.expectEqual(ClockStopReason.score, td_decision.stop_reason);
+        
+        // Game would end after score in any OT period
+        // (Implementation would handle actual game end logic)
+    }
+
+    // └──────────────────────────────────────────────────────────────────┘
+

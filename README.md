@@ -99,25 +99,29 @@ Configuration options for customizing clock behavior.
 ```zig
 pub const ClockConfig = struct {
     // Time settings
-    quarter_length_seconds: u32 = 900,      // 15 minutes
-    overtime_length_seconds: u32 = 600,     // 10 minutes  
-    play_clock_normal: u8 = 40,
-    play_clock_short: u8 = 25,
+    quarter_length: u32 = 900,              // 15 minutes in seconds
+    overtime_length: u32 = 600,             // 10 minutes in seconds
+    play_clock_normal: u8 = 40,             // 40 seconds
+    play_clock_short: u8 = 25,              // 25 seconds
     
     // Rule settings
-    enable_two_minute_warning: bool = true,
-    enable_ten_second_runoff: bool = true,
-    stop_clock_on_first_down: bool = false, // College rule
-    
-    // Behavior settings
-    default_speed: ClockSpeed = .RealTime,
+    clock_stop_first_down: bool = false,    // College rule
     auto_start_play_clock: bool = true,
-    strict_mode: bool = false,
-    
-    // Advanced settings
-    tick_interval_ms: u32 = 100,
-    max_overtime_periods: u8 = 1,
     playoff_rules: bool = false,
+    
+    // Feature flags
+    features: Features = .{
+        .two_minute_warning = true,
+        .overtime = true,
+        .timeouts = true,
+        .challenges = true,
+    },
+    
+    // Preset configurations available
+    // ClockConfig.default()     - NFL regular season
+    // ClockConfig.nflPlayoff()  - NFL playoffs
+    // ClockConfig.college()     - College football
+    // ClockConfig.practice()    - Practice/scrimmage
 };
 ```
 
@@ -287,9 +291,10 @@ pub fn main() !void {
     
     // Or use custom configuration struct
     const config = game_clock.ClockConfig{
-        .quarter_length_seconds = 720,
-        .enable_two_minute_warning = false,
-        .default_speed = .Fast10x,
+        .quarter_length = 720,
+        .features = .{
+            .two_minute_warning = false,
+        },
         .playoff_rules = true,
     };
     
@@ -396,18 +401,13 @@ The library supports extensive configuration through the `ClockConfig` struct:
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `quarter_length_seconds` | u32 | 900 | Length of each quarter (15 minutes) |
-| `overtime_length_seconds` | u32 | 600 | Length of overtime period (10 minutes) |
+| `quarter_length` | u32 | 900 | Length of each quarter (15 minutes) |
+| `overtime_length` | u32 | 600 | Length of overtime period (10 minutes) |
 | `play_clock_normal` | u8 | 40 | Normal play clock duration |
 | `play_clock_short` | u8 | 25 | Short play clock duration |
-| `enable_two_minute_warning` | bool | true | Enable two-minute warning |
-| `enable_ten_second_runoff` | bool | true | Enable 10-second runoff rule |
-| `stop_clock_on_first_down` | bool | false | Stop clock on first down (college rule) |
-| `default_speed` | ClockSpeed | RealTime | Default clock speed |
+| `features.two_minute_warning` | bool | true | Enable two-minute warning |
+| `clock_stop_first_down` | bool | false | Stop clock on first down (last 2 minutes only) |
 | `auto_start_play_clock` | bool | true | Automatically start play clock |
-| `strict_mode` | bool | false | Enforce all rules strictly |
-| `tick_interval_ms` | u32 | 100 | Milliseconds per tick |
-| `max_overtime_periods` | u8 | 1 | Maximum overtime periods |
 | `playoff_rules` | bool | false | Use playoff-specific rules |
 
 ### Preset Configurations

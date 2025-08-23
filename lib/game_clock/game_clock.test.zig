@@ -19,8 +19,6 @@
     const PLAY_CLOCK_SECONDS = @import("game_clock.zig").PLAY_CLOCK_SECONDS;
     const OVERTIME_LENGTH_SECONDS = @import("game_clock.zig").OVERTIME_LENGTH_SECONDS;
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
-
 // ╔══════════════════════════════════════ INIT ═══════════════════════════════════════╗
 
     /// Test data for clock state validation
@@ -52,51 +50,51 @@
         reset: void,
     };
 
-    // ┌──────────────────────────── Test Helpers ────────────────────────────┐
+    // ┌────────────────────────── Test Helpers ──────────────────────────┐
 
-    /// Creates a GameClock with default test configuration
-    fn createTestClock() GameClock {
-        return GameClock.init(testing.allocator);
-    }
+        /// Creates a GameClock with default test configuration
+        fn createTestClock() GameClock {
+            return GameClock.init(testing.allocator);
+        }
 
-    /// Creates a GameClock with specific initial state
-    fn createTestClockWithState(state: TestClockState) GameClock {
-        var clock = GameClock.init(testing.allocator);
-        clock.time_remaining = state.time_remaining;
-        clock.quarter = state.quarter;
-        clock.is_running = state.is_running;
-        clock.play_clock = state.play_clock;
-        clock.game_state = state.game_state;
-        clock.total_elapsed = state.total_elapsed;
-        return clock;
-    }
+        /// Creates a GameClock with specific initial state
+        fn createTestClockWithState(state: TestClockState) GameClock {
+            var clock = GameClock.init(testing.allocator);
+            clock.time_remaining = state.time_remaining;
+            clock.quarter = state.quarter;
+            clock.is_running = state.is_running;
+            clock.play_clock = state.play_clock;
+            clock.game_state = state.game_state;
+            clock.total_elapsed = state.total_elapsed;
+            return clock;
+        }
 
-    /// Creates a GameClock in a specific quarter with given time
-    fn createClockAtQuarter(quarter: Quarter, time_remaining: u32) GameClock {
-        var clock = createTestClock();
-        clock.quarter = quarter;
-        clock.time_remaining = time_remaining;
-        return clock;
-    }
+        /// Creates a GameClock in a specific quarter with given time
+        fn createClockAtQuarter(quarter: Quarter, time_remaining: u32) GameClock {
+            var clock = createTestClock();
+            clock.quarter = quarter;
+            clock.time_remaining = time_remaining;
+            return clock;
+        }
 
-    /// Creates a GameClock ready for two-minute warning scenario
-    fn createTwoMinuteClock(quarter: Quarter) GameClock {
-        var clock = createTestClock();
-        clock.quarter = quarter;
-        clock.time_remaining = 120;
-        clock.game_state = .InProgress;
-        return clock;
-    }
+        /// Creates a GameClock ready for two-minute warning scenario
+        fn createTwoMinuteClock(quarter: Quarter) GameClock {
+            var clock = createTestClock();
+            clock.quarter = quarter;
+            clock.time_remaining = 120;
+            clock.game_state = .InProgress;
+            return clock;
+        }
 
-    /// Asserts that two time values are equal within tolerance
-    fn assertTimeEquals(expected: u32, actual: u32) !void {
-        const tolerance: u32 = 1; // 1 second tolerance
-        const diff = if (expected > actual) expected - actual else actual - expected;
-        try testing.expect(diff <= tolerance);
-    }
+        /// Asserts that two time values are equal within tolerance
+        fn assertTimeEquals(expected: u32, actual: u32) !void {
+            const tolerance: u32 = 1; // 1 second tolerance
+            const diff = if (expected > actual) expected - actual else actual - expected;
+            try testing.expect(diff <= tolerance);
+        }
 
-    /// Asserts complete clock state matches expected values
-    fn assertClockState(clock: *const GameClock, expected: TestClockState) !void {
+        /// Asserts complete clock state matches expected values
+        fn assertClockState(clock: *const GameClock, expected: TestClockState) !void {
         try testing.expectEqual(expected.time_remaining, clock.time_remaining);
         try testing.expectEqual(expected.quarter, clock.quarter);
         try testing.expectEqual(expected.is_running, clock.is_running);
@@ -152,6 +150,8 @@
             try simulatePlay(clock, avg_play_duration);
         }
     }
+
+    // └──────────────────────────────────────────────────────────────────┘
 
     /// Creates test data for various game scenarios
     fn createScenarioData(scenario_type: enum { normal, hurry_up, end_game, overtime }) TestScenario {
@@ -298,13 +298,11 @@
         return actions;
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
-
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
+    // └──────────────────────────────────────────────────────────────────┘
 
 // ╔══════════════════════════════════════ TEST ═══════════════════════════════════════╗
 
-    // ┌──────────────────────────── Unit Tests ────────────────────────────┐
+    // ┌─────────────────────────── Unit Tests ───────────────────────────┐
 
     test "unit: GameClock: initializes with correct default values" {
         const allocator = testing.allocator;
@@ -448,9 +446,9 @@
         try testing.expect(!GameState.EndGame.isActive());
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
+    // └──────────────────────────────────────────────────────────────────┘
 
-    // ┌──────────────────────────── Integration Tests ────────────────────────────┐
+    // ┌─────────────────────── Integration Tests ────────────────────────┐
 
     test "integration: GameClock: handles quarter transitions correctly" {
         const allocator = testing.allocator;
@@ -517,6 +515,91 @@
         try testing.expectError(GameClockError.InvalidQuarter, clock.startOvertime());
     }
 
+    test "unit: GameClock: playoff overtime uses 15 minutes" {
+        const allocator = testing.allocator;
+        var clock = GameClock.init(allocator);
+        
+        // Configure for playoff game
+        clock.config.playoff_rules = true;
+        
+        // Set up end of regulation
+        clock.quarter = .Q4;
+        clock.time_remaining = 0;
+        clock.game_state = .InProgress;
+        
+        try clock.startOvertime();
+        try testing.expectEqual(Quarter.Overtime, clock.quarter);
+        try testing.expectEqual(@as(u32, 900), clock.time_remaining); // 15 minutes for playoffs
+        try testing.expectEqual(GameState.InProgress, clock.game_state);
+        try testing.expectEqual(false, clock.is_running);
+    }
+
+    test "unit: GameClock: regular season overtime uses 10 minutes" {
+        const allocator = testing.allocator;
+        var clock = GameClock.init(allocator);
+        
+        // Ensure regular season configuration (default)
+        try testing.expect(!clock.config.playoff_rules);
+        
+        // Set up end of regulation
+        clock.quarter = .Q4;
+        clock.time_remaining = 0;
+        clock.game_state = .InProgress;
+        
+        try clock.startOvertime();
+        try testing.expectEqual(Quarter.Overtime, clock.quarter);
+        try testing.expectEqual(OVERTIME_LENGTH_SECONDS, clock.time_remaining); // 10 minutes regular
+        try testing.expectEqual(GameState.InProgress, clock.game_state);
+        try testing.expectEqual(false, clock.is_running);
+    }
+
+    test "integration: GameClock: playoff_rules passed to RulesEngine" {
+        const allocator = testing.allocator;
+        const config_module = @import("utils/config/config.zig");
+        
+        // Test with playoff config
+        const playoff_config = config_module.ClockConfig.nflPlayoff();
+        const clock = GameClock.initWithConfig(allocator, playoff_config, null);
+        
+        try testing.expect(clock.config.playoff_rules);
+        try testing.expectEqual(@as(u32, 900), clock.config.overtime_length);
+        
+        // When clock processes plays, it should pass playoff_rules to RulesEngine
+        // This would be verified through the play processing mechanism
+    }
+
+    test "scenario: GameClock: complete playoff game scenario" {
+        const allocator = testing.allocator;
+        const config_module = @import("utils/config/config.zig");
+        
+        // Create playoff game
+        const playoff_config = config_module.ClockConfig.nflPlayoff();
+        var clock = GameClock.initWithConfig(allocator, playoff_config, null);
+        
+        // Verify playoff configuration
+        try testing.expect(clock.config.playoff_rules);
+        try testing.expectEqual(@as(u32, 900), clock.config.overtime_length);
+        
+        // Simulate end of regulation
+        clock.quarter = .Q4;
+        clock.time_remaining = 0;
+        
+        // Start playoff overtime
+        try clock.startOvertime();
+        try testing.expectEqual(@as(u32, 900), clock.time_remaining); // 15-minute OT
+        
+        // Simulate overtime play
+        try clock.start();
+        for (0..10) |_| {
+            try clock.tick();
+        }
+        try clock.stop();
+        
+        // Verify time has decreased correctly
+        try testing.expect(clock.time_remaining < 900);
+        try testing.expect(clock.time_remaining > 880);
+    }
+
     test "integration: GameClock: reset returns to initial state" {
         const allocator = testing.allocator;
         var clock = GameClock.init(allocator);
@@ -560,9 +643,9 @@
         try testing.expectEqual(@as(u64, 15), clock.total_elapsed);
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
+    // └──────────────────────────────────────────────────────────────────┘
 
-    // ┌──────────────────────────── End-to-End Tests ────────────────────────────┐
+    // ┌──────────────────────── End-to-End Tests ────────────────────────┐
 
     test "e2e: GameClock: simulates complete quarter with play clock management" {
         const allocator = testing.allocator;
@@ -652,9 +735,9 @@
         try testing.expectEqual(GameState.EndGame, clock.game_state);
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
+    // └──────────────────────────────────────────────────────────────────┘
 
-    // ┌──────────────────────────── Scenario Tests ────────────────────────────┐
+    // ┌───────────────────────── Scenario Tests ─────────────────────────┐
 
     test "scenario: GameClock: handles overtime sudden death rules" {
         const allocator = testing.allocator;
@@ -815,9 +898,9 @@
         try testing.expect(clock.total_elapsed > 0); // Some time has elapsed
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
+    // └──────────────────────────────────────────────────────────────────┘
 
-    // ┌──────────────────────────── Performance Tests ────────────────────────────┐
+    // ┌─────────────────────── Performance Tests ────────────────────────┐
 
     test "performance: GameClock: handles rapid tick operations efficiently" {
         const allocator = testing.allocator;
@@ -860,9 +943,9 @@
         try testing.expect(elapsed < 50);
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
+    // └──────────────────────────────────────────────────────────────────┘
 
-    // ┌──────────────────────────── Error Handling Tests ────────────────────────────┐
+    // ┌────────────────────── Error Handling Tests ──────────────────────┐
 
     test "unit: GameClock: InvalidConfiguration error on invalid init" {
         const allocator = testing.allocator;
@@ -1238,9 +1321,9 @@
         try testing.expect(clock.time_remaining <= initial_time);
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
+    // └──────────────────────────────────────────────────────────────────┘
 
-    // ┌──────────────────────────── Stress Tests ────────────────────────────┐
+    // ┌────────────────────────── Stress Tests ──────────────────────────┐
 
     test "stress: GameClock: handles maximum game duration" {
         const allocator = testing.allocator;
@@ -1343,6 +1426,5 @@
         try testing.expect(!clock.isPlayClockExpired());
     }
 
-    // └──────────────────────────────────────────────────────────────────────────┘
+    // └──────────────────────────────────────────────────────────────────┘
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝

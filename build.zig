@@ -10,8 +10,6 @@
 
     const Build = @import("std").Build;
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
-
 // ╔══════════════════════════════════════ CORE ═══════════════════════════════════════╗
 
     /// Configures the build system for the NFL clock library.
@@ -26,10 +24,13 @@
     ///
     /// - void
     pub fn build(b: *Build) void {
+        const target = b.standardTargetOptions(.{});
+        const optimize = b.standardOptimizeOption(.{});
+        
         const lib_mod = b.createModule(.{
             .root_source_file = b.path("lib/game_clock.zig"),
-            .target = b.standardTargetOptions(.{}),
-            .optimize = b.standardOptimizeOption(.{}),
+            .target = target,
+            .optimize = optimize,
         });
 
         const lib = b.addLibrary(.{
@@ -48,6 +49,35 @@
 
         const test_step = b.step("test", "Run unit tests");
         test_step.dependOn(&run_lib_tests.step);
+        
+        // Benchmark configuration
+        const benchmark_exe = b.addExecutable(.{
+            .name = "benchmarks",
+            .root_source_file = b.path("benchmarks/simple_benchmark.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+        });
+        
+        benchmark_exe.root_module.addImport("game_clock", lib_mod);
+        
+        const run_benchmarks = b.addRunArtifact(benchmark_exe);
+        
+        const benchmark_step = b.step("benchmark", "Run performance benchmarks");
+        benchmark_step.dependOn(&run_benchmarks.step);
+        
+        // Individual benchmark test suites
+        const benchmark_tests = b.addTest(.{
+            .root_source_file = b.path("benchmarks/benchmark.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+        });
+        
+        benchmark_tests.root_module.addImport("game_clock", lib_mod);
+        
+        const run_benchmark_tests = b.addRunArtifact(benchmark_tests);
+        
+        const benchmark_test_step = b.step("test:benchmark", "Run benchmark tests");
+        benchmark_test_step.dependOn(&run_benchmark_tests.step);
     }
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════╝

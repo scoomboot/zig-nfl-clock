@@ -16,8 +16,6 @@
     pub const ConfigError = config_module.ConfigError;
     pub const Features = config_module.Features;
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
-
 // ╔══════════════════════════════════════ INIT ═══════════════════════════════════════╗
 
     /// NFL game quarter periods
@@ -503,14 +501,14 @@
     pub const PlayStatistics = PlayHandler.PlayStatistics;
     pub const PossessionTeam = PlayHandler.PossessionTeam;
     pub const PlayOptions = PlayHandler.PlayOptions;
+    
+    /// Re-export PlayOutcome from RulesEngine for external use
+    pub const PlayOutcome = @import("utils/rules_engine/rules_engine.zig").PlayOutcome;
 
     /// Import RulesEngine for clock management
     const RulesEngine = @import("utils/rules_engine/rules_engine.zig").RulesEngine;
     const ClockDecision = @import("utils/rules_engine/rules_engine.zig").ClockDecision;
-    const PlayOutcome = @import("utils/rules_engine/rules_engine.zig").PlayOutcome;
     const PenaltyInfo = @import("utils/rules_engine/rules_engine.zig").PenaltyInfo;
-
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
 
 // ╔══════════════════════════════════════ CORE ═══════════════════════════════════════╗
 
@@ -1073,7 +1071,7 @@
             }
         }
 
-        // ┌─────────────────────────────── Private Methods ──────────────────────────────┐
+        // ┌────────────────────────── Private Methods ───────────────────────┐
 
             /// Advance to the next quarter
             fn advanceQuarter(self: *GameClock) GameClockError!void {
@@ -1390,7 +1388,7 @@
                 }
             }
 
-        // └───────────────────────────────────────────────────────────────────────────┘
+        // └──────────────────────────────────────────────────────────────────┘
 
         /// Start overtime period.
         ///
@@ -1409,7 +1407,14 @@
             }
             
             self.quarter = .Overtime;
-            self.time_remaining = OVERTIME_LENGTH_SECONDS;
+            // Use configuration to determine overtime length
+            // Playoffs: 15 minutes (900 seconds)
+            // Regular season: 10 minutes (600 seconds)
+            if (self.config.playoff_rules) {
+                self.time_remaining = 900; // 15 minutes for playoffs
+            } else {
+                self.time_remaining = OVERTIME_LENGTH_SECONDS; // 10 minutes for regular season
+            }
             self.game_state = .InProgress;
             self.is_running = false;
         }
@@ -2481,6 +2486,9 @@
                 .away_timeouts = 3,
                 .possession_team = .home, // Default
                 .is_two_minute_drill = self.shouldTriggerTwoMinuteWarning(),
+                .untimed_down_available = false,
+                .playoff_rules = self.config.playoff_rules,
+                .last_play_penalty_info = null,
             });
             
             // Determine play outcome for RulesEngine
@@ -2572,6 +2580,9 @@
                     .away => .away,
                 },
                 .is_two_minute_drill = context.two_minute_warning or self.shouldTriggerTwoMinuteWarning(),
+                .untimed_down_available = false,
+                .playoff_rules = self.config.playoff_rules,
+                .last_play_penalty_info = null,
             });
             
             // Process any penalties first
@@ -2637,8 +2648,6 @@
             return result;
         }
     };
-
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
 
 // ╔══════════════════════════════════════ TEST ═══════════════════════════════════════╗
 
@@ -3671,4 +3680,4 @@
         try testing.expect(result.yards_gained >= 0);
     }
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════╝

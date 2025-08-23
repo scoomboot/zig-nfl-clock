@@ -11,7 +11,7 @@ def get_mcs_header(filename: str, description: str, path: str) -> str:
 //
 // repo   : https://github.com/zig-nfl-clock
 // docs   : https://zig-nfl-clock.github.io/docs/{path}
-// author : https://github.com/maysara-elshewehy
+// author : https://github.com/scoomboot
 //
 // Vibe coded by Scoom."""
 

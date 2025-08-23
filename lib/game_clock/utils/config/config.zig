@@ -12,8 +12,6 @@
     const testing = std.testing;
     const Allocator = std.mem.Allocator;
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
-
 // ╔══════════════════════════════════════ INIT ═══════════════════════════════════════╗
 
     /// Configuration validation error types
@@ -76,8 +74,6 @@
         }
     };
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
-
 // ╔══════════════════════════════════════ CORE ═══════════════════════════════════════╗
 
     /// Comprehensive clock configuration structure
@@ -116,12 +112,51 @@
         // Feature flags
         features: Features = Features.default(),
         
+        // Playoff-specific rules
+        playoff_rules: bool = false,
+        
         /// Overtime type enumeration
         pub const OvertimeType = enum {
             sudden_death,
             modified_sudden_death,
             college_style,
             none,
+        };
+        
+        /// Preset configurations for common game types
+        pub const Presets = struct {
+            /// Default NFL regular season settings
+            pub const nfl_regular = ClockConfig{};
+            
+            /// NFL playoff settings with modified sudden death overtime
+            pub const nfl_playoff = ClockConfig{
+                .playoff_rules = true,
+                .overtime_type = .modified_sudden_death,
+                .overtime_length = 900,
+            };
+            
+            /// College football settings with different timing rules
+            pub const college = ClockConfig{
+                .clock_stop_first_down = true,
+                .overtime_length = 0,
+                .play_clock_normal = 40,
+                .play_clock_short = 25,
+                .overtime_type = .college_style,
+                .halftime_duration = 1200,
+                .features = Features{
+                    .two_minute_warning = false,
+                    .challenges = false,
+                },
+            };
+            
+            /// Practice settings with simplified rules
+            pub const practice = ClockConfig{
+                .quarter_length = 600,
+                .halftime_duration = 300,
+                .enforce_delay_of_game = false,
+                .overtime_type = .none,
+                .features = Features.practice(),
+            };
         };
         
         /// Initialize with default NFL regular season settings.
@@ -154,6 +189,7 @@
             return ClockConfig{
                 .overtime_type = .modified_sudden_death,
                 .overtime_length = 900, // 15 minutes in playoffs
+                .playoff_rules = true,
                 .features = Features{
                     .two_minute_warning = true,
                     .overtime = true,
@@ -266,6 +302,19 @@
             
             if (self.two_minute_warning_time > self.quarter_length) {
                 return ConfigError.IncompatibleConfiguration;
+            }
+            
+            // Validate playoff rules consistency
+            if (self.playoff_rules) {
+                // Playoffs cannot have no overtime
+                if (self.overtime_type == .none) {
+                    return ConfigError.IncompatibleConfiguration;
+                }
+                
+                // Playoffs require appropriate overtime length (minimum 15 minutes)
+                if (self.overtime_length < 900) {
+                    return ConfigError.InvalidOvertimeLength;
+                }
             }
         }
         
@@ -424,4 +473,4 @@
         }
     };
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════╝

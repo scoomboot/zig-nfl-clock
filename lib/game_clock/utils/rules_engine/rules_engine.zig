@@ -34,8 +34,6 @@
         pub const INJURY_TIMEOUT_DURATION: u32 = 120;
     };
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
-
 // ╔══════════════════════════════════════ INIT ═══════════════════════════════════════╗
 
     /// Rules engine specific error set
@@ -146,6 +144,7 @@
         possession_team: Team,
         is_two_minute_drill: bool,
         untimed_down_available: bool = false,
+        playoff_rules: bool = false,
         last_play_penalty_info: ?PenaltyDetails = null,
     };
 
@@ -173,8 +172,6 @@
         },
         against_team: enum { offense, defense },
     };
-
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
 
 // ╔══════════════════════════════════════ CORE ═══════════════════════════════════════╗
 
@@ -207,6 +204,7 @@
                     .possession_team = .away,
                     .is_two_minute_drill = false,
                     .untimed_down_available = false,
+                    .playoff_rules = false,
                     .last_play_penalty_info = null,
                 },
                 .clock_running = false,
@@ -265,6 +263,17 @@
                 decision.stop_reason = .quarter_end;
                 decision.restart_on_ready = false;
                 decision.restart_on_snap = false;
+                return decision;
+            }
+
+            // Check for scoring plays first (they take precedence over time expiration)
+            if (outcome.base_outcome == .touchdown or 
+                outcome.base_outcome == .field_goal_attempt or 
+                outcome.base_outcome == .safety) {
+                decision.should_stop = true;
+                decision.stop_reason = .score;
+                decision.restart_on_ready = false;
+                decision.restart_on_snap = false; // Kickoff will restart
                 return decision;
             }
 
@@ -327,6 +336,8 @@
                     }
                 },
                 .touchdown, .field_goal_attempt, .safety => {
+                    // Already handled above before time expiration check
+                    // This case should be unreachable but kept for completeness
                     decision.should_stop = true;
                     decision.stop_reason = .score;
                     decision.restart_on_ready = false;
@@ -516,7 +527,18 @@
             // Check for overtime
             if (self.situation.quarter > 4) {
                 self.situation.is_overtime = true;
-                self.situation.time_remaining = TimingConstants.OVERTIME_LENGTH;
+                
+                // Playoff overtime has different timeout allocation
+                if (self.situation.playoff_rules) {
+                    // Each team gets 2 timeouts per overtime period in playoffs
+                    self.situation.home_timeouts = 2;
+                    self.situation.away_timeouts = 2;
+                    // Playoffs use 15-minute overtime periods
+                    self.situation.time_remaining = 900; // 15 minutes
+                } else {
+                    // Regular season overtime - 10 minutes
+                    self.situation.time_remaining = TimingConstants.OVERTIME_LENGTH;
+                }
             }
             
             self.situation.is_two_minute_drill = false;
@@ -535,11 +557,27 @@
         /// - Boolean indicating if game has ended
         pub fn isGameOver(self: *RulesEngine) bool {
             if (self.situation.is_overtime) {
-                // Overtime rules: sudden death in regular season
+                // In playoffs, game never ends in a tie - continues until winner
+                if (self.situation.playoff_rules) {
+                    // Game only ends when there's a score (handled elsewhere)
+                    // Time expiring just moves to next OT period
+                    return false;
+                }
+                // Regular season: sudden death, can end in tie
                 return self.situation.time_remaining == 0;
             }
             
-            return self.situation.quarter >= 4 and self.situation.time_remaining == 0;
+            // End of regulation
+            if (self.situation.quarter >= 4 and self.situation.time_remaining == 0) {
+                // In playoffs, game continues to overtime
+                if (self.situation.playoff_rules) {
+                    return false;
+                }
+                // Regular season can end or go to OT based on score
+                return true;
+            }
+            
+            return false;
         }
 
         /// Check if half is over.
@@ -750,6 +788,7 @@
                         .possession_team = .home,
                         .is_two_minute_drill = false,
                         .untimed_down_available = false,
+                        .playoff_rules = false,
                         .last_play_penalty_info = null,
                     };
                 },
@@ -781,6 +820,7 @@
                         .possession_team = .home,
                         .is_two_minute_drill = false,
                         .untimed_down_available = false,
+                        .playoff_rules = false,
                         .last_play_penalty_info = null,
                     };
                 },
@@ -835,8 +875,6 @@
             return self.processPlayExtended(extended);
         }
     };
-
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
 
 // ╔══════════════════════════════════════ CORE ═══════════════════════════════════════╗
 
@@ -955,8 +993,6 @@
     }
 
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
-
 // ╔══════════════════════════════════════ TEST ═══════════════════════════════════════╗
 
     test "incomplete pass stops clock" {
@@ -1029,4 +1065,4 @@
         try std.testing.expectEqual(@as(u8, 10), engine.situation.distance);
     }
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════╝

@@ -45,8 +45,7 @@
     pub const PlayResult = @import("game_clock/game_clock.zig").PlayResult;
     pub const PlayStatistics = @import("game_clock/game_clock.zig").PlayStatistics;
     pub const PossessionTeam = @import("game_clock/game_clock.zig").PossessionTeam;
-
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
+    pub const PlayOutcome = @import("game_clock/game_clock.zig").PlayOutcome;
 
 // ╔══════════════════════════════════════ CORE ═══════════════════════════════════════╗
 
@@ -79,8 +78,6 @@
     pub fn version() []const u8 {
         return "0.1.0";
     }
-
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
 
 // ╔══════════════════════════════════════ TEST ═══════════════════════════════════════╗
 
@@ -116,6 +113,7 @@
         _ = PlayResult;
         _ = PlayStatistics;
         _ = PossessionTeam;
+        _ = PlayOutcome;
 
         // Basic version check
         try testing.expect(version().len > 0);
@@ -458,4 +456,4 @@
         _ = @import("game_clock/utils/config/config_integration.test.zig");
     }
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════╝

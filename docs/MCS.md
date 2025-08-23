@@ -126,7 +126,7 @@ Developed by [Maysara Elshewehy](https://github.com/maysara-elshewehy) for the [
         //
         // repo   : https://github.com/Super-ZIG/io
         // docs   : https://super-zig.github.io/io/{path}
-        // author : https://github.com/maysara-elshewehy
+        // author : https://github.com/scoomboot
         //
         // Vibe coded by Scoom.
         ```

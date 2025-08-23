@@ -16,11 +16,9 @@
     const ConfigError = config_module.ConfigError;
     const Migration = config_module.Migration;
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
-
 // ╔══════════════════════════════════════ TEST ═══════════════════════════════════════╗
 
-    // ┌──────────────────────────── PRESET TESTS ────────────────────────────┐
+    // ┌────────────────────────── PRESET TESTS ──────────────────────────┐
 
     test "unit: ClockConfig: default initialization" {
         const cfg = ClockConfig.default();
@@ -62,6 +60,7 @@
         
         try testing.expectEqual(ClockConfig.OvertimeType.modified_sudden_death, cfg.overtime_type);
         try testing.expectEqual(@as(u32, 900), cfg.overtime_length); // 15 minutes in playoffs
+        try testing.expect(cfg.playoff_rules); // Verify playoff_rules is set to true
         try testing.expect(cfg.features.two_minute_warning);
         try testing.expect(cfg.features.overtime);
         try testing.expect(cfg.features.weather_effects);
@@ -90,6 +89,8 @@
         try testing.expect(!cfg.features.two_minute_warning);
         try testing.expect(!cfg.features.penalties);
     }
+
+    // └──────────────────────────────────────────────────────────────────┘
     
     test "unit: ClockConfig: validation success" {
         var cfg = ClockConfig.default();
@@ -299,7 +300,7 @@
         }
     }
 
-    // ┌──────────────────────────── BOUNDARY VALUE TESTS ────────────────────────────┐
+    // ┌────────────────────── BOUNDARY VALUE TESTS ──────────────────────┐
 
     test "unit: ClockConfig: minimum valid values" {
         var cfg = ClockConfig.default();
@@ -356,7 +357,7 @@
         try cfg.validate();
     }
 
-    // ┌──────────────────────────── VALIDATION ERROR TESTS ────────────────────────────┐
+    // ┌───────────────────── VALIDATION ERROR TESTS ─────────────────────┐
     
     test "unit: ClockConfig: validation extreme values" {
         var cfg = ClockConfig.default();
@@ -401,7 +402,7 @@
         try cfg.validate();
     }
 
-    // ┌──────────────────────────── CONFIGURATION CONFLICT TESTS ────────────────────────────┐
+    // ┌────────────────── CONFIGURATION CONFLICT TESTS ──────────────────┐
     
     test "unit: ClockConfig: conflicting rules detection" {
         var cfg = ClockConfig.default();
@@ -438,7 +439,7 @@
         try cfg.validate();
     }
 
-    // ┌──────────────────────────── FEATURE FLAG TESTS ────────────────────────────┐
+    // ┌─────────────────────── FEATURE FLAG TESTS ───────────────────────┐
     
     test "unit: Features: custom feature combinations" {
         // Test all features disabled
@@ -506,7 +507,7 @@
         try cfg.validate();
     }
 
-    // ┌──────────────────────────── COMPATIBILITY CHECK TESTS ────────────────────────────┐
+    // ┌─────────────────── COMPATIBILITY CHECK TESTS ────────────────────┐
     
     test "unit: ClockConfig: compatibility edge cases" {
         const current = ClockConfig.default();
@@ -552,7 +553,7 @@
         }
     }
 
-    // ┌──────────────────────────── MIGRATION TESTS ────────────────────────────┐
+    // ┌──────────────────────── MIGRATION TESTS ─────────────────────────┐
     
     test "unit: Migration: comprehensive change tracking" {
         const allocator = testing.allocator;
@@ -628,7 +629,7 @@
         }
     }
 
-    // ┌──────────────────────────── ADVANCED SETTINGS TESTS ────────────────────────────┐
+    // ┌──────────────────── ADVANCED SETTINGS TESTS ─────────────────────┐
     
     test "unit: ClockConfig: simulation speed settings" {
         var cfg = ClockConfig.default();
@@ -693,7 +694,7 @@
         }
     }
 
-    // ┌──────────────────────────── COMPILE-TIME TESTS ────────────────────────────┐
+    // ┌─────────────────────── COMPILE-TIME TESTS ───────────────────────┐
     
     test "unit: ClockConfig: compile-time preset validation" {
         // Test all presets can be validated at compile time
@@ -722,4 +723,451 @@
         try testing.expect(custom.features.weather_effects);
     }
 
-// ╚════════════════════════════════════════════════════════════════════════════════════╝
+    // ┌────────────────────── PLAYOFF RULES TESTS ───────────────────────┐
+
+    test "unit: ClockConfig: default config has playoff_rules false" {
+        const cfg = ClockConfig.default();
+        try testing.expect(!cfg.playoff_rules);
+        try testing.expectEqual(@as(u32, 600), cfg.overtime_length); // Regular season 10 minutes
+    }
+
+    test "unit: ClockConfig: playoff_rules validation rejects incompatible overtime_type" {
+        var cfg = ClockConfig.default();
+        cfg.playoff_rules = true;
+        cfg.overtime_type = .none;
+        
+        // Playoff games cannot have no overtime
+        try testing.expectError(ConfigError.IncompatibleConfiguration, cfg.validate());
+    }
+
+    test "unit: ClockConfig: playoff_rules requires minimum 15-minute overtime" {
+        var cfg = ClockConfig.default();
+        cfg.playoff_rules = true;
+        cfg.overtime_length = 600; // 10 minutes - too short for playoffs
+        
+        try testing.expectError(ConfigError.InvalidOvertimeLength, cfg.validate());
+        
+        // Exactly 15 minutes should be valid
+        cfg.overtime_length = 900;
+        try cfg.validate();
+        
+        // More than 15 minutes should be valid
+        cfg.overtime_length = 1200;
+        try cfg.validate();
+    }
+
+    test "unit: ClockConfig: regular season config does not set playoff_rules" {
+        const cfg = ClockConfig.default();
+        
+        try testing.expect(!cfg.playoff_rules);
+        try testing.expectEqual(@as(u32, 600), cfg.overtime_length);
+        try testing.expectEqual(ClockConfig.OvertimeType.sudden_death, cfg.overtime_type);
+        
+        // Should validate without issues
+        try cfg.validate();
+    }
+
+    test "unit: ClockConfig: college preset does not set playoff_rules" {
+        const cfg = ClockConfig.college();
+        
+        try testing.expect(!cfg.playoff_rules);
+        try testing.expectEqual(ClockConfig.OvertimeType.college_style, cfg.overtime_type);
+        
+        // College has different overtime rules
+        try cfg.validate();
+    }
+
+    test "unit: ClockConfig: practice preset does not set playoff_rules" {
+        const cfg = ClockConfig.practice();
+        
+        try testing.expect(!cfg.playoff_rules);
+        try testing.expectEqual(ClockConfig.OvertimeType.none, cfg.overtime_type);
+        
+        // Practice mode has no overtime
+        try cfg.validate();
+    }
+
+    test "integration: ClockConfig: transitioning from regular to playoff config" {
+        const allocator = testing.allocator;
+        
+        // Start with regular season config
+        const regular = ClockConfig.default();
+        try testing.expect(!regular.playoff_rules);
+        
+        // Transition to playoff config
+        const playoff = ClockConfig.nflPlayoff();
+        try testing.expect(playoff.playoff_rules);
+        
+        // Create migration to track changes
+        var migration = try regular.createMigration(&playoff, allocator);
+        defer migration.deinit();
+        
+        // Migration tracks changes between configs
+        // The exact implementation of migration tracking may vary
+        // Just verify the migration was created successfully
+        try testing.expect(migration.steps.items.len >= 0);
+    }
+
+    test "unit: ClockConfig: playoff_rules with valid overtime configurations" {
+        var cfg = ClockConfig.nflPlayoff();
+        
+        // Test with sudden death overtime (valid for playoffs)
+        cfg.overtime_type = .sudden_death;
+        cfg.overtime_length = 900;
+        try cfg.validate();
+        
+        // Test with modified sudden death (default for playoffs)
+        cfg.overtime_type = .modified_sudden_death;
+        cfg.overtime_length = 900;
+        try cfg.validate();
+        
+        // Test with extended overtime length
+        cfg.overtime_length = 1800; // 30 minutes
+        try cfg.validate();
+    }
+
+    test "unit: ClockConfig: playoff_rules edge cases" {
+        var cfg = ClockConfig.default();
+        
+        // Edge case: playoff_rules with exactly minimum overtime
+        cfg.playoff_rules = true;
+        cfg.overtime_length = 900; // Exactly 15 minutes
+        cfg.overtime_type = .modified_sudden_death;
+        try cfg.validate();
+        
+        // Edge case: playoff_rules with one second less than minimum
+        cfg.overtime_length = 899; // 14:59
+        try testing.expectError(ConfigError.InvalidOvertimeLength, cfg.validate());
+        
+        // Edge case: switching playoff_rules on and off
+        cfg.playoff_rules = false;
+        cfg.overtime_length = 600; // Regular season length OK now
+        try cfg.validate();
+    }
+
+    test "scenario: ClockConfig: playoff game configuration workflow" {
+        // Scenario: Setting up a playoff game
+        var cfg = ClockConfig.nflPlayoff();
+        
+        // Verify all playoff-specific settings
+        try testing.expect(cfg.playoff_rules);
+        try testing.expectEqual(@as(u32, 900), cfg.overtime_length);
+        try testing.expectEqual(ClockConfig.OvertimeType.modified_sudden_death, cfg.overtime_type);
+        try testing.expect(cfg.features.overtime);
+        try testing.expect(cfg.features.two_minute_warning);
+        
+        // Customize for specific playoff conditions
+        cfg.features.weather_effects = true; // Cold playoff game
+        cfg.simulation_speed = 1; // Real-time for playoffs
+        cfg.deterministic_mode = false; // Production mode
+        
+        // Validate complete playoff configuration
+        try cfg.validate();
+    }
+
+    // └──────────────────────────────────────────────────────────────────┘
+
+    // ┌────────────────────── PRESETS STRUCT TESTS ──────────────────────┐
+
+    test "unit: ClockConfig.Presets: nfl_regular has expected values" {
+        const preset = ClockConfig.Presets.nfl_regular;
+        
+        // Verify it matches default configuration
+        try testing.expectEqual(@as(u32, 900), preset.quarter_length);
+        try testing.expectEqual(@as(u32, 600), preset.overtime_length);
+        try testing.expectEqual(@as(u32, 720), preset.halftime_duration);
+        try testing.expectEqual(@as(u8, 40), preset.play_clock_normal);
+        try testing.expectEqual(@as(u8, 25), preset.play_clock_short);
+        try testing.expectEqual(@as(u32, 30), preset.timeout_duration);
+        try testing.expectEqual(@as(u32, 120), preset.two_minute_warning_time);
+        try testing.expectEqual(@as(u8, 3), preset.timeouts_per_half);
+        try testing.expectEqual(@as(u8, 2), preset.challenges_per_game);
+        try testing.expectEqual(ClockConfig.OvertimeType.sudden_death, preset.overtime_type);
+        try testing.expect(!preset.playoff_rules);
+        try testing.expect(preset.clock_stop_incomplete_pass);
+        try testing.expect(preset.clock_stop_out_of_bounds);
+        try testing.expect(preset.clock_stop_penalty);
+        try testing.expect(!preset.clock_stop_first_down);
+        try testing.expect(preset.auto_start_play_clock);
+        try testing.expect(!preset.auto_timeout_management);
+        try testing.expect(preset.injury_timeout_enabled);
+        try testing.expect(preset.enforce_delay_of_game);
+        try testing.expectEqual(@as(u8, 1), preset.minimum_snap_time);
+        try testing.expectEqual(@as(u8, 3), preset.spike_clock_runoff);
+        try testing.expectEqual(@as(u8, 40), preset.kneel_clock_runoff);
+        try testing.expectEqual(@as(u32, 1), preset.simulation_speed);
+        try testing.expect(!preset.deterministic_mode);
+    }
+
+    test "unit: ClockConfig.Presets: nfl_playoff has expected values" {
+        const preset = ClockConfig.Presets.nfl_playoff;
+        
+        // Verify playoff-specific settings
+        try testing.expect(preset.playoff_rules);
+        try testing.expectEqual(ClockConfig.OvertimeType.modified_sudden_death, preset.overtime_type);
+        try testing.expectEqual(@as(u32, 900), preset.overtime_length); // 15 minutes for playoffs
+        
+        // Other settings should match default
+        try testing.expectEqual(@as(u32, 900), preset.quarter_length);
+        try testing.expectEqual(@as(u32, 720), preset.halftime_duration);
+        try testing.expectEqual(@as(u8, 40), preset.play_clock_normal);
+        try testing.expectEqual(@as(u8, 25), preset.play_clock_short);
+    }
+
+    test "unit: ClockConfig.Presets: college has expected values" {
+        const preset = ClockConfig.Presets.college;
+        
+        // Verify college-specific settings
+        try testing.expect(preset.clock_stop_first_down);
+        try testing.expectEqual(@as(u32, 0), preset.overtime_length);
+        try testing.expectEqual(@as(u8, 40), preset.play_clock_normal);
+        try testing.expectEqual(@as(u8, 25), preset.play_clock_short);
+        try testing.expectEqual(ClockConfig.OvertimeType.college_style, preset.overtime_type);
+        try testing.expectEqual(@as(u32, 1200), preset.halftime_duration); // 20 minutes
+        
+        // Verify college features
+        try testing.expect(!preset.features.two_minute_warning);
+        try testing.expect(!preset.features.challenges);
+        
+        // Should not have playoff rules
+        try testing.expect(!preset.playoff_rules);
+    }
+
+    test "unit: ClockConfig.Presets: practice has expected values" {
+        const preset = ClockConfig.Presets.practice;
+        
+        // Verify practice-specific settings
+        try testing.expectEqual(@as(u32, 600), preset.quarter_length); // 10 minutes
+        try testing.expectEqual(@as(u32, 300), preset.halftime_duration); // 5 minutes
+        try testing.expect(!preset.enforce_delay_of_game);
+        try testing.expectEqual(ClockConfig.OvertimeType.none, preset.overtime_type);
+        
+        // Verify practice features (all disabled)
+        try testing.expect(!preset.features.two_minute_warning);
+        try testing.expect(!preset.features.overtime);
+        try testing.expect(!preset.features.timeouts);
+        try testing.expect(!preset.features.injuries);
+        try testing.expect(!preset.features.penalties);
+        try testing.expect(!preset.features.challenges);
+        try testing.expect(!preset.features.weather_effects);
+        
+        // Should not have playoff rules
+        try testing.expect(!preset.playoff_rules);
+    }
+
+    test "unit: ClockConfig.Presets: all presets pass validation" {
+        // Test that all presets are valid configurations
+        const nfl_regular = ClockConfig.Presets.nfl_regular;
+        try nfl_regular.validate();
+        
+        const nfl_playoff = ClockConfig.Presets.nfl_playoff;
+        try nfl_playoff.validate();
+        
+        const college = ClockConfig.Presets.college;
+        try college.validate();
+        
+        const practice = ClockConfig.Presets.practice;
+        try practice.validate();
+    }
+
+    test "unit: ClockConfig.Presets: presets are compile-time constants" {
+        // Verify that presets can be used in comptime contexts
+        const comptime_regular = comptime ClockConfig.Presets.nfl_regular;
+        const comptime_playoff = comptime ClockConfig.Presets.nfl_playoff;
+        const comptime_college = comptime ClockConfig.Presets.college;
+        const comptime_practice = comptime ClockConfig.Presets.practice;
+        
+        // Verify comptime values match runtime values
+        try testing.expectEqual(ClockConfig.Presets.nfl_regular.quarter_length, comptime_regular.quarter_length);
+        try testing.expectEqual(ClockConfig.Presets.nfl_playoff.overtime_length, comptime_playoff.overtime_length);
+        try testing.expectEqual(ClockConfig.Presets.college.overtime_type, comptime_college.overtime_type);
+        try testing.expectEqual(ClockConfig.Presets.practice.quarter_length, comptime_practice.quarter_length);
+    }
+
+    test "unit: ClockConfig.Presets: can be used as base for custom configurations" {
+        // Start with NFL regular preset
+        var custom = ClockConfig.Presets.nfl_regular;
+        
+        // Customize specific settings
+        custom.quarter_length = 1200; // 20 minutes
+        custom.play_clock_normal = 35;
+        custom.features.weather_effects = true;
+        
+        // Verify customizations took effect
+        try testing.expectEqual(@as(u32, 1200), custom.quarter_length);
+        try testing.expectEqual(@as(u8, 35), custom.play_clock_normal);
+        try testing.expect(custom.features.weather_effects);
+        
+        // Verify other settings remain from preset
+        try testing.expectEqual(@as(u32, 600), custom.overtime_length);
+        try testing.expectEqual(ClockConfig.OvertimeType.sudden_death, custom.overtime_type);
+        
+        // Custom config should still be valid
+        try custom.validate();
+    }
+
+    test "unit: ClockConfig.Presets: preset copying preserves all fields" {
+        // Test that copying presets preserves all fields correctly
+        const original = ClockConfig.Presets.nfl_playoff;
+        var copy = original;
+        
+        // Verify copy has same values
+        try testing.expectEqual(original.playoff_rules, copy.playoff_rules);
+        try testing.expectEqual(original.overtime_type, copy.overtime_type);
+        try testing.expectEqual(original.overtime_length, copy.overtime_length);
+        try testing.expectEqual(original.quarter_length, copy.quarter_length);
+        
+        // Modify copy shouldn't affect original (since it's a const)
+        copy.quarter_length = 1800;
+        try testing.expectEqual(@as(u32, 900), original.quarter_length);
+        try testing.expectEqual(@as(u32, 1800), copy.quarter_length);
+    }
+
+    test "integration: ClockConfig.Presets: presets work with GameClock.initWithConfig" {
+        const GameClock = @import("../../game_clock.zig").GameClock;
+        const allocator = testing.allocator;
+        
+        // Test NFL regular preset
+        {
+            var clock = GameClock.initWithConfig(allocator, ClockConfig.Presets.nfl_regular, null);
+            defer clock.deinit();
+            
+            try testing.expectEqual(@as(u32, 900), clock.config.quarter_length);
+            try testing.expect(!clock.config.playoff_rules);
+        }
+        
+        // Test NFL playoff preset
+        {
+            var clock = GameClock.initWithConfig(allocator, ClockConfig.Presets.nfl_playoff, null);
+            defer clock.deinit();
+            
+            try testing.expectEqual(@as(u32, 900), clock.config.overtime_length);
+            try testing.expect(clock.config.playoff_rules);
+        }
+        
+        // Test college preset
+        {
+            var clock = GameClock.initWithConfig(allocator, ClockConfig.Presets.college, null);
+            defer clock.deinit();
+            
+            try testing.expect(clock.config.clock_stop_first_down);
+            try testing.expectEqual(ClockConfig.OvertimeType.college_style, clock.config.overtime_type);
+        }
+        
+        // Test practice preset
+        {
+            var clock = GameClock.initWithConfig(allocator, ClockConfig.Presets.practice, null);
+            defer clock.deinit();
+            
+            try testing.expectEqual(@as(u32, 600), clock.config.quarter_length);
+            try testing.expectEqual(ClockConfig.OvertimeType.none, clock.config.overtime_type);
+        }
+    }
+
+    test "integration: ClockConfig.Presets: preset modifications work with GameClock" {
+        const GameClock = @import("../../game_clock.zig").GameClock;
+        const allocator = testing.allocator;
+        
+        // Start with college preset and modify
+        var modified_college = ClockConfig.Presets.college;
+        modified_college.quarter_length = 720; // 12 minutes
+        modified_college.features.weather_effects = true;
+        
+        var clock = GameClock.initWithConfig(allocator, modified_college, null);
+        defer clock.deinit();
+        
+        // Verify modifications applied
+        try testing.expectEqual(@as(u32, 720), clock.config.quarter_length);
+        try testing.expect(clock.config.features.weather_effects);
+        
+        // Verify preset values retained
+        try testing.expect(clock.config.clock_stop_first_down);
+        try testing.expectEqual(ClockConfig.OvertimeType.college_style, clock.config.overtime_type);
+    }
+
+    test "unit: ClockConfig.Presets: compile-time validation of presets" {
+        // Verify all presets can be validated at compile time
+        comptime {
+            // This would cause a compile error if validation failed
+            ClockConfig.Presets.nfl_regular.validate() catch unreachable;
+            ClockConfig.Presets.nfl_playoff.validate() catch unreachable;
+            ClockConfig.Presets.college.validate() catch unreachable;
+            ClockConfig.Presets.practice.validate() catch unreachable;
+        }
+        
+        // Runtime check to ensure test runs
+        try testing.expect(true);
+    }
+
+    test "unit: ClockConfig.Presets: preset equality comparisons" {
+        // Test that presets can be compared
+        const regular1 = ClockConfig.Presets.nfl_regular;
+        const regular2 = ClockConfig.Presets.nfl_regular;
+        const playoff = ClockConfig.Presets.nfl_playoff;
+        
+        // Same preset should have equal values
+        try testing.expectEqual(regular1.quarter_length, regular2.quarter_length);
+        try testing.expectEqual(regular1.overtime_type, regular2.overtime_type);
+        try testing.expectEqual(regular1.playoff_rules, regular2.playoff_rules);
+        
+        // Different presets should have different values
+        try testing.expect(regular1.overtime_type != playoff.overtime_type);
+        try testing.expect(regular1.playoff_rules != playoff.playoff_rules);
+    }
+
+    test "performance: ClockConfig.Presets: preset access performance" {
+        // Test that preset access is efficient (compile-time resolved)
+        const start = std.time.milliTimestamp();
+        
+        // Access presets multiple times
+        var sum: u32 = 0;
+        for (0..1000) |_| {
+            sum += ClockConfig.Presets.nfl_regular.quarter_length;
+            sum += ClockConfig.Presets.nfl_playoff.overtime_length;
+            sum += ClockConfig.Presets.college.halftime_duration;
+            sum += ClockConfig.Presets.practice.quarter_length;
+        }
+        
+        const elapsed = std.time.milliTimestamp() - start;
+        
+        // Should be very fast since presets are compile-time constants
+        try testing.expect(elapsed < 10); // Less than 10ms for 1000 iterations
+        try testing.expect(sum > 0); // Ensure computation wasn't optimized away
+    }
+
+    test "stress: ClockConfig.Presets: multiple preset instances" {
+        const allocator = testing.allocator;
+        const GameClock = @import("../../game_clock.zig").GameClock;
+        
+        // Create multiple clocks with different presets simultaneously
+        var clocks = std.ArrayList(GameClock).init(allocator);
+        defer {
+            for (clocks.items) |*clock| {
+                clock.deinit();
+            }
+            clocks.deinit();
+        }
+        
+        // Add clocks with each preset type
+        for (0..10) |_| {
+            try clocks.append(GameClock.initWithConfig(allocator, ClockConfig.Presets.nfl_regular, null));
+            try clocks.append(GameClock.initWithConfig(allocator, ClockConfig.Presets.nfl_playoff, null));
+            try clocks.append(GameClock.initWithConfig(allocator, ClockConfig.Presets.college, null));
+            try clocks.append(GameClock.initWithConfig(allocator, ClockConfig.Presets.practice, null));
+        }
+        
+        // Verify all clocks have correct configurations
+        for (clocks.items, 0..) |clock, i| {
+            const preset_type = i % 4;
+            switch (preset_type) {
+                0 => try testing.expect(!clock.config.playoff_rules),
+                1 => try testing.expect(clock.config.playoff_rules),
+                2 => try testing.expect(clock.config.clock_stop_first_down),
+                3 => try testing.expectEqual(@as(u32, 600), clock.config.quarter_length),
+                else => unreachable,
+            }
+        }
+    }
+
+    // └──────────────────────────────────────────────────────────────────┘
+

@@ -1,8 +1,8 @@
 // game_clock.zig — Core implementation of the NFL game clock
 //
-// repo   : https://github.com/zig-nfl-clock
+// repo   : https://github.com/scoomboot/zig-nfl-clock
 // docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/game_clock
-// author : https://github.com/maysara-elshewehy
+// author : https://github.com/scoomboot
 //
 // Vibe coded by Scoom.
 
@@ -11,6 +11,10 @@
     const std = @import("std");
     const testing = std.testing;
     const Allocator = std.mem.Allocator;
+    const config_module = @import("utils/config/config.zig");
+    pub const ClockConfig = config_module.ClockConfig;
+    pub const ConfigError = config_module.ConfigError;
+    pub const Features = config_module.Features;
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════╝
 
@@ -664,6 +668,22 @@
             self.test_seed = seed;
             return self;
         }
+        
+        /// Build with a custom configuration.
+        ///
+        /// Creates a GameClock using the provided configuration.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Const reference to ClockBuilder
+        /// - `cfg`: Configuration to use for the clock
+        ///
+        /// __Return__
+        ///
+        /// - GameClock instance with custom configuration
+        pub fn buildWithConfig(self: *const ClockBuilder, cfg: ClockConfig) GameClock {
+            return GameClock.initWithConfig(self.allocator, cfg, self.test_seed);
+        }
 
         /// Build the final GameClock instance.
         ///
@@ -677,27 +697,36 @@
         ///
         /// - Configured GameClock instance
         pub fn build(self: *const ClockBuilder) GameClock {
-            return GameClock{
-                .time_remaining = self.quarter_length,
-                .quarter = self.start_quarter,
-                .is_running = false,
-                .clock_state = .stopped,
-                .play_clock = self.play_clock_duration.toSeconds(),
-                .play_clock_state = .inactive,
-                .play_clock_duration = self.play_clock_duration,
-                .game_state = .PreGame,
-                .clock_speed = self.clock_speed,
-                .custom_speed_multiplier = self.custom_speed_multiplier,
-                .two_minute_warning_given = if (self.two_minute_warning_enabled) 
-                    [_]bool{false} ** 4 
-                else 
-                    [_]bool{true} ** 4, // Mark as already given to disable
-                .total_elapsed = 0,
-                .mutex = std.Thread.Mutex{},
-                .allocator = self.allocator,
-                .modification_count = 0,
-                .test_seed = self.test_seed,
-            };
+            // Create configuration from builder settings
+            var cfg = ClockConfig.default();
+            cfg.quarter_length = self.quarter_length;
+            cfg.play_clock_normal = if (self.play_clock_duration == .normal_40) 40 else cfg.play_clock_normal;
+            cfg.play_clock_short = if (self.play_clock_duration == .short_25) 25 else cfg.play_clock_short;
+            cfg.features.two_minute_warning = self.two_minute_warning_enabled;
+            cfg.simulation_speed = self.custom_speed_multiplier;
+            cfg.deterministic_mode = (self.test_seed != null);
+            
+            // Adjust two-minute warning time if quarter is very short
+            if (cfg.quarter_length < cfg.two_minute_warning_time) {
+                cfg.two_minute_warning_time = @min(cfg.quarter_length, 120);
+            }
+            
+            // Use initWithConfig to create the clock
+            var clock = GameClock.initWithConfig(self.allocator, cfg, self.test_seed);
+            
+            // Apply builder-specific settings that aren't in config
+            clock.quarter = self.start_quarter;
+            clock.time_remaining = if (self.start_quarter == .Overtime) 
+                cfg.overtime_length 
+            else 
+                self.quarter_length;
+            clock.clock_speed = self.clock_speed;
+            clock.play_clock_duration = self.play_clock_duration;
+            
+            // Set initial play clock based on duration type
+            clock.play_clock = if (self.play_clock_duration == .short_25) 25 else 40;
+            
+            return clock;
         }
     };
 
@@ -750,6 +779,9 @@
         
         /// Optional seed for deterministic testing (null uses timestamp)
         test_seed: ?u64,
+        
+        /// Configuration for clock behavior and rules
+        config: ClockConfig,
 
         /// Initialize a new game clock.
         ///
@@ -779,23 +811,48 @@
         ///
         /// - Initialized GameClock instance
         pub fn initWithSeed(allocator: Allocator, seed: ?u64) GameClock {
+            var cfg = ClockConfig.default();
+            cfg.deterministic_mode = (seed != null);
+            return initWithConfig(allocator, cfg, seed);
+        }
+        
+        /// Initialize a new game clock with custom configuration.
+        ///
+        /// Creates a new game clock with specified configuration settings.
+        ///
+        /// __Parameters__
+        ///
+        /// - `allocator`: Memory allocator for dynamic allocations
+        /// - `cfg`: Configuration settings for the clock
+        /// - `seed`: Optional seed for deterministic testing
+        ///
+        /// __Return__
+        ///
+        /// - Initialized GameClock instance with custom configuration
+        pub fn initWithConfig(allocator: Allocator, cfg: ClockConfig, seed: ?u64) GameClock {
+            // Validate configuration
+            cfg.validate() catch |err| {
+                std.debug.panic("Invalid configuration: {}", .{err});
+            };
+            
             return GameClock{
-                .time_remaining = QUARTER_LENGTH_SECONDS,
+                .time_remaining = cfg.quarter_length,
                 .quarter = .Q1,
                 .is_running = false,
                 .clock_state = .stopped,
-                .play_clock = PLAY_CLOCK_SECONDS,
+                .play_clock = cfg.play_clock_normal,
                 .play_clock_state = .inactive,
-                .play_clock_duration = .normal_40,
+                .play_clock_duration = if (cfg.play_clock_normal == 40) .normal_40 else .short_25,
                 .game_state = .PreGame,
-                .clock_speed = .real_time,
-                .custom_speed_multiplier = 1,
-                .two_minute_warning_given = [_]bool{false} ** 4,
+                .clock_speed = if (cfg.simulation_speed == 1) .real_time else if (cfg.simulation_speed == 2) .accelerated_2x else if (cfg.simulation_speed == 5) .accelerated_5x else if (cfg.simulation_speed == 10) .accelerated_10x else .custom,
+                .custom_speed_multiplier = cfg.simulation_speed,
+                .two_minute_warning_given = if (cfg.features.two_minute_warning) [_]bool{false} ** 4 else [_]bool{true} ** 4,
                 .total_elapsed = 0,
                 .mutex = std.Thread.Mutex{},
                 .allocator = allocator,
                 .modification_count = 0,
-                .test_seed = seed,
+                .test_seed = if (cfg.deterministic_mode) seed orelse 12345 else seed,
+                .config = cfg,
             };
         }
 
@@ -1879,6 +1936,73 @@
             }
         }
 
+        /// Update the clock configuration at runtime.
+        ///
+        /// Applies a new configuration to the clock, validating compatibility first.
+        /// Some changes may require the clock to be stopped.
+        ///
+        /// __Parameters__
+        ///
+        /// - `self`: Mutable reference to GameClock
+        /// - `new_config`: New configuration to apply
+        ///
+        /// __Return__
+        ///
+        /// - Error if configuration is invalid or incompatible
+        pub fn updateConfig(self: *GameClock, new_config: ClockConfig) !void {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+            
+            // Validate new configuration
+            try new_config.validate();
+            
+            // Check compatibility with current state
+            if (!self.config.isCompatibleChange(&new_config, self.time_remaining)) {
+                return GameClockError.InvalidConfiguration;
+            }
+            
+            // Apply configuration changes
+            const old_config = self.config;
+            self.config = new_config;
+            
+            // Update clock properties based on new config
+            if (old_config.quarter_length != new_config.quarter_length) {
+                // Adjust time remaining proportionally if quarter length changes
+                const ratio = @as(f32, @floatFromInt(new_config.quarter_length)) / @as(f32, @floatFromInt(old_config.quarter_length));
+                self.time_remaining = @intFromFloat(@as(f32, @floatFromInt(self.time_remaining)) * ratio);
+            }
+            
+            // Update play clock settings
+            self.play_clock = if (self.play_clock_duration == .normal_40) 
+                new_config.play_clock_normal 
+            else 
+                new_config.play_clock_short;
+            
+            // Update two-minute warning tracking
+            if (!new_config.features.two_minute_warning) {
+                // Mark all warnings as given if feature is disabled
+                self.two_minute_warning_given = [_]bool{true} ** 4;
+            }
+            
+            // Update simulation speed
+            if (new_config.simulation_speed != old_config.simulation_speed) {
+                self.custom_speed_multiplier = new_config.simulation_speed;
+                if (new_config.simulation_speed == 1) {
+                    self.clock_speed = .real_time;
+                } else if (new_config.simulation_speed == 2) {
+                    self.clock_speed = .accelerated_2x;
+                } else if (new_config.simulation_speed == 5) {
+                    self.clock_speed = .accelerated_5x;
+                } else if (new_config.simulation_speed == 10) {
+                    self.clock_speed = .accelerated_10x;
+                } else {
+                    self.clock_speed = .custom;
+                }
+            }
+            
+            self.modification_count += 1;
+        }
+        
         /// Add deinit method for cleanup.
         ///
         /// Cleans up any resources when GameClock is destroyed.

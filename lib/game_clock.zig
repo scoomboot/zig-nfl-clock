@@ -1,8 +1,8 @@
 // game_clock.zig — Main entry point for the NFL game clock library
 //
-// repo   : https://github.com/zig-nfl-clock
+// repo   : https://github.com/scoomboot/zig-nfl-clock
 // docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock
-// author : https://github.com/maysara-elshewehy
+// author : https://github.com/scoomboot
 //
 // Vibe coded by Scoom.
 
@@ -16,6 +16,11 @@
     pub const ErrorContext = @import("game_clock/game_clock.zig").ErrorContext;
     pub const Quarter = @import("game_clock/game_clock.zig").Quarter;
     pub const GameState = @import("game_clock/game_clock.zig").GameState;
+    
+    // Re-export configuration types
+    pub const ClockConfig = @import("game_clock/game_clock.zig").ClockConfig;
+    pub const ConfigError = @import("game_clock/game_clock.zig").ConfigError;
+    pub const Features = @import("game_clock/game_clock.zig").Features;
     
     // Re-export new enum types
     pub const ClockState = @import("game_clock/game_clock.zig").ClockState;
@@ -449,6 +454,8 @@
         _ = @import("game_clock/utils/time_formatter/time_formatter.test.zig");
         _ = @import("game_clock/utils/rules_engine/rules_engine.test.zig");
         _ = @import("game_clock/utils/play_handler/play_handler.test.zig");
+        _ = @import("game_clock/utils/config/config.test.zig");
+        _ = @import("game_clock/utils/config/config_integration.test.zig");
     }
 
 // ╚══════════════════════════════════════════════════════════════════════════════════════╝

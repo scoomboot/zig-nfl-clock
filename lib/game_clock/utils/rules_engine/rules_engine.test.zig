@@ -1,8 +1,8 @@
 // rules_engine.test.zig — Rules engine tests
 //
-// repo   : https://github.com/zig-nfl-clock
+// repo   : https://github.com/scoomboot/zig-nfl-clock
 // docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/rules_engine
-// author : https://github.com/fisty
+// author : https://github.com/scoomboot
 //
 // Vibe coded by Scoom.
 

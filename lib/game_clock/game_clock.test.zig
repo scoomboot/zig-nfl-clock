@@ -1,8 +1,8 @@
 // game_clock.test.zig — Game clock unit tests
 //
-// repo   : https://github.com/zig-nfl-clock
+// repo   : https://github.com/scoomboot/zig-nfl-clock
 // docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/game_clock.test
-// author : https://github.com/fisty
+// author : https://github.com/scoomboot
 //
 // Vibe coded by Scoom.
 

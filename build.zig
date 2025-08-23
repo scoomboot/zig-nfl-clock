@@ -1,8 +1,8 @@
 // build.zig — Build configuration for NFL game clock library
 //
-// repo   : https://github.com/zig-nfl-clock
+// repo   : https://github.com/scoomboot/zig-nfl-clock
 // docs   : https://zig-nfl-clock.github.io/docs/build
-// author : https://github.com/maysara-elshewehy
+// author : https://github.com/scoomboot
 //
 // Vibe coded by Scoom.
 

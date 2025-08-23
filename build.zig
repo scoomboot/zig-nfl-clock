@@ -1,18 +1,18 @@
 // build.zig — Build configuration for NFL game clock library
 //
-// repo   : https://github.com/scoomboot/zig-nfl-clock
-// docs   : https://zig-nfl-clock.github.io/docs/build
+// repo   : https://github.com/fisty/zig-nfl-clock
+// docs   : https://fisty.github.io/zig-nfl-clock/docs/build
 // author : https://github.com/scoomboot
 //
 // Vibe coded by Scoom.
 
-// ╔══════════════════════════════════════ PACK ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ PACK ═══════════════════════════════════════╗
 
     const Build = @import("std").Build;
 
-// ╚══════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════════╝
 
-// ╔══════════════════════════════════════ BUILD ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ CORE ═══════════════════════════════════════╗
 
     /// Configures the build system for the NFL clock library.
     ///
@@ -50,4 +50,4 @@
         test_step.dependOn(&run_lib_tests.step);
     }
 
-// ╚══════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════════╝

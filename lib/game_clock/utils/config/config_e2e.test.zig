@@ -1,12 +1,12 @@
 // config_e2e.test.zig — End-to-end tests for configuration system
 //
-// repo   : https://github.com/scoomboot/zig-nfl-clock
-// docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/config
+// repo   : https://github.com/fisty/zig-nfl-clock
+// docs   : https://fisty.github.io/zig-nfl-clock/docs/lib/game_clock/utils/config
 // author : https://github.com/scoomboot
 //
 // Vibe coded by Scoom.
 
-// ╔══════════════════════════════════════ PACK ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ PACK ═══════════════════════════════════════╗
 
     const std = @import("std");
     const testing = std.testing;
@@ -19,9 +19,9 @@
     const Features = @import("config.zig").Features;
     const ConfigError = @import("config.zig").ConfigError;
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════════╝
 
-// ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ TEST ═══════════════════════════════════════╗
 
     // ────────────────────────────── END-TO-END WORKFLOW TESTS ──────────────────────────────
     
@@ -431,4 +431,4 @@
         // };
     }
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════════╝

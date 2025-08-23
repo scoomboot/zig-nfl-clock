@@ -1,12 +1,12 @@
 // game_clock.zig — Core implementation of the NFL game clock
 //
-// repo   : https://github.com/scoomboot/zig-nfl-clock
-// docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/game_clock
+// repo   : https://github.com/fisty/zig-nfl-clock
+// docs   : https://fisty.github.io/zig-nfl-clock/docs/lib/game_clock/game_clock
 // author : https://github.com/scoomboot
 //
 // Vibe coded by Scoom.
 
-// ╔══════════════════════════════════════ PACK ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ PACK ═══════════════════════════════════════╗
 
     const std = @import("std");
     const testing = std.testing;
@@ -16,9 +16,9 @@
     pub const ConfigError = config_module.ConfigError;
     pub const Features = config_module.Features;
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════════╝
 
-// ╔══════════════════════════════════════ INIT ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ INIT ═══════════════════════════════════════╗
 
     /// NFL game quarter periods
     pub const Quarter = enum(u8) {
@@ -510,9 +510,9 @@
     const PlayOutcome = @import("utils/rules_engine/rules_engine.zig").PlayOutcome;
     const PenaltyInfo = @import("utils/rules_engine/rules_engine.zig").PenaltyInfo;
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════════╝
 
-// ╔══════════════════════════════════════ CORE ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ CORE ═══════════════════════════════════════╗
 
     /// Builder pattern for GameClock configuration
     pub const ClockBuilder = struct {
@@ -2638,9 +2638,9 @@
         }
     };
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════════╝
 
-// ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ TEST ═══════════════════════════════════════╗
 
     test "unit: GameClock: initialization" {
         const allocator = testing.allocator;
@@ -3671,4 +3671,4 @@
         try testing.expect(result.yards_gained >= 0);
     }
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════════╝

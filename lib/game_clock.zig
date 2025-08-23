@@ -1,12 +1,12 @@
 // game_clock.zig — Main entry point for the NFL game clock library
 //
-// repo   : https://github.com/scoomboot/zig-nfl-clock
-// docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock
+// repo   : https://github.com/fisty/zig-nfl-clock
+// docs   : https://fisty.github.io/zig-nfl-clock/docs/lib/game_clock
 // author : https://github.com/scoomboot
 //
 // Vibe coded by Scoom.
 
-// ╔══════════════════════════════════════ PACK ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ PACK ═══════════════════════════════════════╗
 
     const std = @import("std");
 
@@ -46,9 +46,9 @@
     pub const PlayStatistics = @import("game_clock/game_clock.zig").PlayStatistics;
     pub const PossessionTeam = @import("game_clock/game_clock.zig").PossessionTeam;
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════════╝
 
-// ╔══════════════════════════════════════ CORE ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ CORE ═══════════════════════════════════════╗
 
     /// Create a new game clock instance with default NFL settings.
     ///
@@ -80,11 +80,11 @@
         return "0.1.0";
     }
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════════╝
 
-// ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ TEST ═══════════════════════════════════════╗
 
-    test "unit: game_clock: library exports" {
+    test "unit: GameClock: library exports" {
         const testing = std.testing;
 
         // Verify that all expected exports are available
@@ -121,7 +121,7 @@
         try testing.expect(version().len > 0);
     }
 
-    test "unit: game_clock: create instance" {
+    test "unit: GameClock: create instance" {
         const testing = std.testing;
         const allocator = testing.allocator;
 
@@ -149,7 +149,7 @@
         try testing.expectEqualStrings("15:00", time_str);
     }
 
-    test "unit: game_clock: builder pattern" {
+    test "unit: GameClock: builder pattern" {
         const testing = std.testing;
         const allocator = testing.allocator;
 
@@ -168,7 +168,7 @@
         try testing.expect(!clock.two_minute_warning_given[0]); // Q1 warning not given yet
     }
 
-    test "unit: game_clock: play processing" {
+    test "unit: GameClock: play processing" {
         const testing = std.testing;
         const allocator = testing.allocator;
 
@@ -205,7 +205,7 @@
         try testing.expectEqual(PlayType.pass_short, advanced_result.play_type);
     }
 
-    test "unit: game_clock: convenience methods" {
+    test "unit: GameClock: convenience methods" {
         const testing = std.testing;
         const allocator = testing.allocator;
 
@@ -240,7 +240,7 @@
         try testing.expect(!clock.isHalftime()); // Should not be halftime in overtime
     }
 
-    test "unit: game_clock: convenience methods edge cases" {
+    test "unit: GameClock: convenience methods edge cases" {
         const testing = std.testing;
         const allocator = testing.allocator;
 
@@ -274,7 +274,7 @@
         try testing.expectEqual(@as(u32, 450), elapsed); // Should be 900 - 450
     }
 
-    test "unit: game_clock: builder pattern comprehensive" {
+    test "unit: GameClock: builder pattern comprehensive" {
         const testing = std.testing;
         const allocator = testing.allocator;
 
@@ -305,7 +305,7 @@
         try testing.expectEqual(ClockSpeed.accelerated_2x, custom_clock.clock_speed);
     }
 
-    test "unit: game_clock: builder pattern edge cases" {
+    test "unit: GameClock: builder pattern edge cases" {
         const testing = std.testing;
         const allocator = testing.allocator;
 
@@ -334,7 +334,7 @@
         try testing.expectEqual(@as(u32, 1), full_clock.custom_speed_multiplier);
     }
 
-    test "e2e: game_clock: Issue #014 API examples" {
+    test "e2e: GameClock: Issue #014 API examples" {
         const testing = std.testing;
         const allocator = testing.allocator;
 
@@ -390,7 +390,7 @@
         try testing.expect(formatted.len > 0); // Should have formatted time string
     }
 
-    test "integration: game_clock: Issue #014 comprehensive validation" {
+    test "integration: GameClock: Issue #014 comprehensive validation" {
         const testing = std.testing;
         const allocator = testing.allocator;
 
@@ -458,4 +458,4 @@
         _ = @import("game_clock/utils/config/config_integration.test.zig");
     }
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════════╝

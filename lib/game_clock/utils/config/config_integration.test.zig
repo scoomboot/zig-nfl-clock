@@ -1,12 +1,12 @@
 // config_integration.test.zig — Integration tests for configuration with GameClock
 //
-// repo   : https://github.com/scoomboot/zig-nfl-clock
-// docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/config
+// repo   : https://github.com/fisty/zig-nfl-clock
+// docs   : https://fisty.github.io/zig-nfl-clock/docs/lib/game_clock/utils/config
 // author : https://github.com/scoomboot
 //
 // Vibe coded by Scoom.
 
-// ╔══════════════════════════════════════ PACK ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ PACK ═══════════════════════════════════════╗
 
     const std = @import("std");
     const testing = std.testing;
@@ -15,9 +15,9 @@
     const ClockConfig = @import("config.zig").ClockConfig;
     const Features = @import("config.zig").Features;
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════════╝
 
-// ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ TEST ═══════════════════════════════════════╗
 
     test "integration: ClockConfig: NFL regular season game" {
         const allocator = testing.allocator;
@@ -599,4 +599,4 @@
         try testing.expectEqual(@as(u32, 100), clock.config.simulation_speed);
     }
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════════╝

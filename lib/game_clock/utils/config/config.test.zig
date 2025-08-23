@@ -1,12 +1,12 @@
 // config.test.zig — Tests for NFL game clock configuration system
 //
-// repo   : https://github.com/scoomboot/zig-nfl-clock
-// docs   : https://zig-nfl-clock.github.io/docs/lib/game_clock/utils/config
+// repo   : https://github.com/fisty/zig-nfl-clock
+// docs   : https://fisty.github.io/zig-nfl-clock/docs/lib/game_clock/utils/config
 // author : https://github.com/scoomboot
 //
 // Vibe coded by Scoom.
 
-// ╔══════════════════════════════════════ PACK ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ PACK ═══════════════════════════════════════╗
 
     const std = @import("std");
     const testing = std.testing;
@@ -16,9 +16,9 @@
     const ConfigError = config_module.ConfigError;
     const Migration = config_module.Migration;
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════════╝
 
-// ╔══════════════════════════════════════ TEST ══════════════════════════════════════╗
+// ╔══════════════════════════════════════ TEST ═══════════════════════════════════════╗
 
     // ┌──────────────────────────── PRESET TESTS ────────────────────────────┐
 
@@ -722,4 +722,4 @@
         try testing.expect(custom.features.weather_effects);
     }
 
-// ╚══════════════════════════════════════════════════════════════════════════════════════╝
+// ╚════════════════════════════════════════════════════════════════════════════════════╝

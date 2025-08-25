@@ -27,7 +27,7 @@
         const target = b.standardTargetOptions(.{});
         const optimize = b.standardOptimizeOption(.{});
         
-        const lib_mod = b.createModule(.{
+        const lib_mod = b.addModule("game_clock", .{
             .root_source_file = b.path("lib/game_clock.zig"),
             .target = target,
             .optimize = optimize,

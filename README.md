@@ -32,8 +32,11 @@ zig fetch --save https://github.com/fisty/zig-nfl-clock
 ### In your build.zig
 
 ```zig
-const game_clock = b.dependency("game_clock", .{});
-exe.addModule("game_clock", game_clock.module("game_clock"));
+const game_clock_dep = b.dependency("zig_nfl_clock", .{
+    .target = target,
+    .optimize = optimize,
+});
+exe.root_module.addImport("game_clock", game_clock_dep.module("game_clock"));
 ```
 
 ### Requirements
